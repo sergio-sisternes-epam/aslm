@@ -1,3 +1,7 @@
+// PyO3-generated code triggers useless_conversion when map_err produces PyErr
+// and ? converts it again via From<PyErr> for PyErr.
+#![allow(clippy::useless_conversion)]
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
