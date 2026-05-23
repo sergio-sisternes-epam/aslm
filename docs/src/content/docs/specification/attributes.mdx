@@ -1,0 +1,49 @@
+---
+title: Attribute Reference
+description: Complete reference for all SML attributes.
+---
+
+## Attributes by Node Type
+
+### Invocation Attributes
+
+| Attribute | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `interface` | string | One of interface/impl/name | — | Abstract capability to resolve |
+| `impl` | string | One of interface/impl/name | — | Force specific implementation |
+| `name` | string | One of interface/impl/name | — | Direct lookup |
+| `language` | string | No | — | Language hint for resolution |
+| `framework` | string | No | — | Framework hint for resolution |
+| `retries` | integer | No | `0` | Maximum retry attempts |
+| `policy` | enum | No | `bottom-up` | Execution policy |
+| `on-failure` | enum | No | `halt` | Failure handling mode |
+| `timeout` | string | No | — | Execution timeout |
+
+### Interface Definition Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `define` | `"interface"` | Yes | Marks as interface definition |
+| `name` | string | Yes | Interface identifier |
+
+### Implementation Definition Attributes
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `define` | `"implementation"` | Yes | Marks as implementation definition |
+| `name` | string | Yes | Implementation identifier |
+| `implements` | string | Yes | Interface this implements |
+| `language` | string | No | Language for resolution matching |
+| `framework` | string | No | Framework for resolution matching |
+
+## Enum Values
+
+### `policy`
+- `bottom-up` — children first (default)
+- `wrapper` — outer controls children
+- `sequential` — pipeline execution
+
+### `on-failure`
+- `halt` — stop on error (default)
+- `skip` — silent skip
+- `partial` — inject error marker

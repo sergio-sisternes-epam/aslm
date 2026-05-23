@@ -1,0 +1,44 @@
+---
+title: Formal Grammar
+description: EBNF grammar for the SML language.
+---
+
+## Overview
+
+SML uses XML-like `<skill>` tags embedded in arbitrary text. The grammar defines three mutually exclusive node types determined by the presence of the `define` attribute.
+
+## Node Types
+
+```
+Document       ::= (SkillNode | Text)*
+SkillNode      ::= Invocation | InterfaceDefn | ImplDefn
+Invocation     ::= '<skill' InvocationAttrs '>' Content '</skill>'
+                 | '<skill' InvocationAttrs '/>'
+InterfaceDefn  ::= '<skill' 'define="interface"' 'name=' QuotedStr InterfaceAttrs '>' Content '</skill>'
+ImplDefn       ::= '<skill' 'define="implementation"' 'name=' QuotedStr 'implements=' QuotedStr ImplAttrs '>' Content '</skill>'
+```
+
+## Attributes
+
+```
+InvocationAttrs ::= (InterfaceAttr | ImplAttr | NameAttr | LangAttr | FrameworkAttr | RetriesAttr | PolicyAttr | OnFailureAttr | TimeoutAttr)*
+InterfaceAttrs  ::= DescriptionAttr?
+ImplAttrs       ::= (LangAttr | FrameworkAttr | DescriptionAttr)*
+```
+
+## Content Model
+
+```
+Content    ::= (SkillNode | ParamNode | Text)*
+ParamNode  ::= '<param' 'name=' QuotedStr '>' ParamValue '</param>'
+ParamValue ::= Text
+Text       ::= (Char - '<')* | EscapedChar
+EscapedChar::= '&lt;' | '&gt;' | '&amp;' | '&quot;' | '&apos;'
+```
+
+## Lexical Rules
+
+- Attribute values are always quoted (single or double quotes)
+- Whitespace between attributes is required
+- Tag names are case-sensitive (`<skill>` only, not `<Skill>`)
+- Comments (`<!-- ... -->`) are stripped during parsing

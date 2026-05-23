@@ -1,0 +1,44 @@
+---
+title: Error Handling
+description: How SML handles failures during execution.
+---
+
+## Failure Modes
+
+Configure per-skill failure behaviour with `on-failure`:
+
+```xml
+<!-- Default: halt execution on failure -->
+<skill interface="critical-check">content</skill>
+
+<!-- Skip: remove tag and continue -->
+<skill interface="optional-step" on-failure="skip">content</skill>
+
+<!-- Partial: inject error marker -->
+<skill interface="best-effort" on-failure="partial">content</skill>
+```
+
+## Retries
+
+```xml
+<skill interface="flaky-api" retries="3">
+  Call the unreliable service.
+</skill>
+```
+
+The skill will be attempted up to 4 times (1 initial + 3 retries). If all fail, `on-failure` determines the outcome.
+
+## Error Types
+
+| Error | Cause |
+|-------|-------|
+| `ResolutionFailed` | No implementation found for the skill |
+| `HandlerError` | The skill handler returned an error |
+| `RetriesExhausted` | All retry attempts failed |
+| `ChildFailed` | A nested skill failed (with `on-failure="halt"`) |
+
+## Propagation
+
+With `on-failure="halt"` (default), errors propagate up the tree. A failed inner skill causes its parent to fail, which causes its grandparent to fail, etc.
+
+With `on-failure="skip"` or `"partial"`, the error is absorbed at that level and execution continues.

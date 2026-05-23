@@ -1,0 +1,32 @@
+---
+title: Interface Resolution
+description: How SML resolves interfaces to implementations.
+---
+
+## Resolution Algorithm
+
+Resolution is deterministic and follows strict priority:
+
+1. **`impl` present** → Use exact implementation (validate against `interface` if both present)
+2. **`interface` present** → Filter by hints, pick highest priority
+3. **`name` present** → Direct lookup as implementation name
+
+## Hint Filtering
+
+When resolving by interface, hints narrow the candidate set:
+
+1. Get all implementations that declare `implements="<interface>"`
+2. If `language` hint present: filter to matching language (keep all if no match)
+3. If `framework` hint present: filter to matching framework (keep all if no match)
+4. Sort by priority (higher wins)
+5. If top two have equal priority → **fail with ambiguity error**
+
+## Error Cases
+
+| Scenario | Error |
+|----------|-------|
+| No implementations for interface | `NoImplementation` |
+| Multiple equal-priority matches | `Ambiguous` |
+| Explicit `impl` not in registry | `ImplNotFound` |
+| `impl` doesn't implement declared `interface` | `ImplMismatch` |
+| No `interface`, `impl`, or `name` | `NoTarget` |

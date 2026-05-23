@@ -1,0 +1,6 @@
+/* Custom styles for the SML docs site */
+:root {
+  --sl-color-accent-low: #1a1a2e;
+  --sl-color-accent: #4a90d9;
+  --sl-color-accent-high: #a8d0f0;
+}

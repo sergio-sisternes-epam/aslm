@@ -1,0 +1,41 @@
+---
+title: pip install
+description: Install SML from PyPI.
+---
+
+## Quick Install
+
+```bash
+pip install sml
+```
+
+## Requirements
+
+- Python 3.9+
+- No additional dependencies (Rust runtime is bundled in the wheel)
+
+## From Source
+
+If you need to build from source:
+
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install maturin
+pip install maturin
+
+# Clone and build
+git clone https://github.com/sergio-sisternes-epam/aslm.git
+cd aslm
+maturin develop --release
+```
+
+## Verify
+
+```python
+from sml import parse
+doc = parse('<skill interface="test">hello</skill>')
+assert doc.node_count == 1
+print("SML installed successfully!")
+```

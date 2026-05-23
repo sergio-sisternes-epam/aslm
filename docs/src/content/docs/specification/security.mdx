@@ -1,0 +1,34 @@
+---
+title: Security Model
+description: Trust boundaries and security constraints in SML.
+---
+
+## Principles
+
+1. **Deny by default** — Skills have no capabilities unless explicitly granted
+2. **Results are escaped** — Skill output is never re-parsed as SML (prevents injection)
+3. **Scoped execution** — Skills only see their declared scope (tag content)
+
+## Trust Boundaries
+
+| Source | Trust Level | Description |
+|--------|------------|-------------|
+| System prompt definitions | Trusted | Installed by operator |
+| User-provided SML | Untrusted | Must be validated |
+| Skill results | Escaped | Never re-parsed |
+
+## Capability Model
+
+Skills declare required capabilities. The runtime validates against granted permissions:
+
+- File system access (read/write/execute)
+- Network access (URLs, ports)
+- Side effects (mutation, external calls)
+- Resource limits (time, memory)
+
+## Mitigation Strategies
+
+- **Result escaping**: All `<` and `>` in results are entity-encoded
+- **Depth limits**: Maximum nesting depth prevents stack overflow
+- **Timeout enforcement**: Skills that exceed their timeout are terminated
+- **Retry caps**: Maximum retries prevent infinite loops

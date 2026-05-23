@@ -1,0 +1,20 @@
+
+export default new Map([
+["src/content/docs/index.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Findex.mdx&astroContentModuleFlag=true")],
+["src/content/docs/guide/nesting-and-scoping.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fguide%2Fnesting-and-scoping.mdx&astroContentModuleFlag=true")],
+["src/content/docs/guide/getting-started.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fguide%2Fgetting-started.mdx&astroContentModuleFlag=true")],
+["src/content/docs/guide/error-handling.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fguide%2Ferror-handling.mdx&astroContentModuleFlag=true")],
+["src/content/docs/guide/interfaces-and-implementations.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fguide%2Finterfaces-and-implementations.mdx&astroContentModuleFlag=true")],
+["src/content/docs/guide/syntax.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fguide%2Fsyntax.mdx&astroContentModuleFlag=true")],
+["src/content/docs/api/python-api.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fapi%2Fpython-api.mdx&astroContentModuleFlag=true")],
+["src/content/docs/api/rust-api.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fapi%2Frust-api.mdx&astroContentModuleFlag=true")],
+["src/content/docs/installation/apm-package.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Finstallation%2Fapm-package.mdx&astroContentModuleFlag=true")],
+["src/content/docs/installation/pip-install.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Finstallation%2Fpip-install.mdx&astroContentModuleFlag=true")],
+["src/content/docs/specification/attributes.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fspecification%2Fattributes.mdx&astroContentModuleFlag=true")],
+["src/content/docs/specification/execution.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fspecification%2Fexecution.mdx&astroContentModuleFlag=true")],
+["src/content/docs/specification/grammar.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fspecification%2Fgrammar.mdx&astroContentModuleFlag=true")],
+["src/content/docs/specification/index.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fspecification%2Findex.mdx&astroContentModuleFlag=true")],
+["src/content/docs/specification/lifecycle.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fspecification%2Flifecycle.mdx&astroContentModuleFlag=true")],
+["src/content/docs/specification/resolution.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fspecification%2Fresolution.mdx&astroContentModuleFlag=true")],
+["src/content/docs/specification/security.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fspecification%2Fsecurity.mdx&astroContentModuleFlag=true")]]);
+		

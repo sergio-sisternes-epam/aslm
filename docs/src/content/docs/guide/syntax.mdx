@@ -1,0 +1,54 @@
+---
+title: Syntax Reference
+description: Complete SML syntax guide.
+---
+
+## Tag Structure
+
+```xml
+<skill attribute="value" ...>
+  <param name="key">value</param>
+  Content (scope)
+</skill>
+```
+
+## Self-Closing Tags
+
+Skills with no content can self-close:
+
+```xml
+<skill interface="health-check" />
+```
+
+## Parameters
+
+Structured inputs use `<param>` child tags:
+
+```xml
+<skill interface="file-search">
+  <param name="pattern">*.rs</param>
+  <param name="directory">src/</param>
+  Find matching files.
+</skill>
+```
+
+## Escaping
+
+Use XML entities for special characters in content:
+
+| Character | Entity |
+|-----------|--------|
+| `<` | `&lt;` |
+| `>` | `&gt;` |
+| `&` | `&amp;` |
+| `"` | `&quot;` |
+| `'` | `&apos;` |
+
+## Comments
+
+XML comments are stripped during parsing:
+
+```xml
+<!-- This is ignored -->
+<skill interface="testing">Run tests</skill>
+```

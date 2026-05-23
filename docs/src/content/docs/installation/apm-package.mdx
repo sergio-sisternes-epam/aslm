@@ -1,0 +1,43 @@
+---
+title: APM Package
+description: Install SML via Agent Package Manager.
+---
+
+## Install via APM
+
+```bash
+apm install sml
+```
+
+This installs the SML knowledge package which includes:
+- `sml-usage-guide` — How to write SML tags correctly
+- `sml-installation` — How to install the runtime
+
+## What You Get
+
+After installation, agents loading the `sml-usage-guide` skill will know how to:
+- Write correct SML syntax
+- Define interfaces and implementations
+- Use nesting and scoping patterns
+- Handle errors and retries
+- Choose appropriate execution policies
+
+## Package Contents
+
+```
+.apm/skills/
+├── sml-usage-guide/
+│   ├── SKILL.md          # Core syntax rules and patterns
+│   └── references/
+│       └── system-prompts.md  # ReAct and Plan-and-Execute examples
+└── sml-installation/
+    └── SKILL.md          # Runtime installation instructions
+```
+
+## APM vs pip
+
+| Concern | APM (`apm install sml`) | pip (`pip install sml`) |
+|---------|------------------------|------------------------|
+| What | Knowledge (skills) | Runtime (parser + executor) |
+| For | Agents learning SML syntax | Applications executing SML |
+| Delivers | SKILL.md files | Compiled Rust + Python bindings |

@@ -1,0 +1,48 @@
+---
+title: Python API
+description: Python API reference for the SML runtime.
+---
+
+## Module: `sml`
+
+### `parse(input: str) -> Document`
+
+Parse an SML document from a string. Returns a `Document` object.
+
+```python
+from sml import parse
+
+doc = parse('<skill interface="testing">Run tests</skill>')
+```
+
+Raises `ValueError` if the input contains malformed SML.
+
+### `execute(doc: Document, registry: SmlRegistry) -> str`
+
+Execute a parsed document with the given registry. Returns the final text output.
+
+```python
+from sml import execute, parse, SmlRegistry
+
+doc = parse(prompt)
+registry = SmlRegistry()
+result = execute(doc, registry)
+```
+
+### `Document`
+
+| Property/Method | Description |
+|----------------|-------------|
+| `node_count` | Number of top-level nodes |
+| `definitions()` | List of definition names (e.g. `["interface:testing", "impl:pytest"]`) |
+| `invocations()` | List of invocation targets (e.g. `["testing", "code-review"]`) |
+
+### `SmlRegistry`
+
+| Method | Description |
+|--------|-------------|
+| `SmlRegistry()` | Create empty registry |
+| `register_interface(name, description=None)` | Register an interface |
+| `register_implementation(name, implements, language=None, framework=None, description=None, priority=0)` | Register an implementation |
+| `register_from_document(doc)` | Register all definitions from a parsed document |
+| `validate()` | Return list of validation errors |

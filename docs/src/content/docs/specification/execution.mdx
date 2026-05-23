@@ -1,0 +1,43 @@
+---
+title: Execution Model
+description: How SML executes skills with policies and failure handling.
+---
+
+## Execution Policies
+
+| Policy | Behaviour |
+|--------|-----------|
+| `bottom-up` (default) | Children execute first; results become the outer scope |
+| `wrapper` | Outer skill receives raw children (controls execution) |
+| `sequential` | Children execute in order, each seeing prior results |
+
+## Result Injection
+
+When a skill executes successfully, its tag is replaced by the result text:
+
+```
+Input:  "Please <skill interface="summarise">long text here</skill> thanks"
+Output: "Please [summary result] thanks"
+```
+
+Results are **escaped by default** — they are never re-parsed as SML.
+
+## Failure Modes
+
+| Mode | Behaviour |
+|------|-----------|
+| `halt` (default) | Stop execution, propagate error |
+| `skip` | Remove the tag, continue with empty string |
+| `partial` | Inject error marker `[FAILED: ...]` and continue |
+
+## Retry Semantics
+
+The `retries` attribute specifies maximum retry attempts (default: 0 = no retries).
+
+```xml
+<skill interface="flaky-api" retries="3" on-failure="skip">
+  Call the service.
+</skill>
+```
+
+If all attempts fail, the `on-failure` mode determines behaviour.

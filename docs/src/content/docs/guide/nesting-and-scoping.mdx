@@ -1,0 +1,60 @@
+---
+title: Nesting & Scoping
+description: Composition patterns with nested SML skills.
+---
+
+## Scoping
+
+Everything inside a `<skill>` tag is its **scope** — what the skill operates on:
+
+```xml
+<skill interface="summarise">
+  This is the content that will be summarised.
+  It can be multiple lines of text.
+</skill>
+```
+
+## Nesting
+
+Skills can be nested. By default, inner skills execute first (bottom-up):
+
+```xml
+<skill interface="summarise">
+  <skill interface="fetch-url">
+    <param name="url">https://example.com/article</param>
+  </skill>
+</skill>
+```
+
+**Execution order:**
+1. `fetch-url` executes → returns article text
+2. Article text replaces the inner `<skill>` tag
+3. `summarise` executes with the article as its scope
+
+## Wrapper Pattern
+
+Use `policy="wrapper"` when the outer skill controls child execution:
+
+```xml
+<skill interface="sandbox" policy="wrapper">
+  <skill interface="dangerous-tool">
+    Execute something risky.
+  </skill>
+</skill>
+```
+
+The sandbox skill receives the raw children and decides whether/how to execute them.
+
+## Sequential Pattern
+
+Use `policy="sequential"` for pipeline processing:
+
+```xml
+<skill interface="pipeline" policy="sequential">
+  <skill interface="step-1">input data</skill>
+  <skill interface="step-2">transform</skill>
+  <skill interface="step-3">output</skill>
+</skill>
+```
+
+Each step sees the results of previous steps.

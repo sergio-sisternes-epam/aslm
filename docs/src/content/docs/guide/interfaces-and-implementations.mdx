@@ -1,0 +1,50 @@
+---
+title: Interfaces & Implementations
+description: The SML resolution model.
+---
+
+## Concepts
+
+- **Interface**: An abstract capability (e.g. "unit-testing")
+- **Implementation**: A concrete realisation (e.g. "pytest-runner")
+
+## Defining Interfaces
+
+```xml
+<skill define="interface" name="unit-testing">
+  Execute automated tests and report pass/fail results with coverage.
+</skill>
+```
+
+## Defining Implementations
+
+```xml
+<skill define="implementation" name="pytest-runner" implements="unit-testing" language="python" framework="pytest">
+  Run tests using pytest with coverage via pytest-cov.
+</skill>
+
+<skill define="implementation" name="jest-runner" implements="unit-testing" language="javascript" framework="jest">
+  Run tests using Jest with coverage reporting.
+</skill>
+```
+
+## Invoking by Interface
+
+```xml
+<skill interface="unit-testing" language="python">
+  <param name="target">src/auth.py</param>
+  Run tests for this module.
+</skill>
+```
+
+The runtime resolves `unit-testing` + `language="python"` → `pytest-runner`.
+
+## Resolution Priority
+
+1. `impl` specified → use that exact implementation
+2. `interface` specified → filter by hints, pick highest priority
+3. `name` specified → direct lookup
+
+## Handling Ambiguity
+
+If multiple implementations match with equal priority, resolution **fails explicitly** with an `Ambiguous` error. This is intentional — SML never silently picks a random implementation.

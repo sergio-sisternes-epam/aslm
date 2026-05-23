@@ -1,0 +1,37 @@
+---
+title: Execution Lifecycle
+description: The six phases of SML processing.
+---
+
+## Pipeline
+
+SML processing follows a strict six-phase pipeline:
+
+1. **Parse** — Extract `<skill>` tags from input text, build AST
+2. **Validate** — Check attribute combinations, required fields
+3. **Register** — Extract definition nodes, populate SkillRegistry
+4. **Resolve** — Map invocation nodes to concrete implementations
+5. **Execute** — Run skills bottom-up, inject results
+6. **Output** — Return final text with all skills replaced by results
+
+## Phase Details
+
+### Parse
+The parser is embedded-tolerant: it extracts `<skill>` tags from arbitrary prompt text. Non-tag `<` characters are treated as literal text.
+
+### Validate
+- Definition nodes must have required attributes (`name`, `implements`)
+- Invocations must have at least one resolution target
+- Attribute values are validated against allowed sets
+
+### Register
+Definition nodes are extracted and registered in the `SkillRegistry`. They produce no output in the final text.
+
+### Resolve
+Each invocation is resolved to a concrete implementation using the deterministic resolution algorithm.
+
+### Execute
+Skills execute bottom-up by default. Results are injected as text replacements.
+
+### Output
+The final output is the original text with all `<skill>` tags replaced by their execution results.

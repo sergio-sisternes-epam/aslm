@@ -1,0 +1,55 @@
+---
+title: Getting Started
+description: Quick start guide for using SML in your agent prompts.
+---
+
+## Installation
+
+```bash
+pip install sml
+```
+
+## Your First SML Tag
+
+SML tags are embedded directly in agent prompts:
+
+```xml
+<skill interface="code-review" language="python">
+  def login(user, pwd):
+      return db.query(f"SELECT * FROM users WHERE name='{user}'")
+</skill>
+```
+
+## Defining Skills
+
+Before invoking, define your interfaces and implementations:
+
+```xml
+<skill define="interface" name="code-review">
+  Analyse code for bugs, style issues, and security vulnerabilities.
+</skill>
+
+<skill define="implementation" name="python-review" implements="code-review" language="python">
+  Use ruff, mypy, and security linting for Python code review.
+</skill>
+```
+
+## Using the Python API
+
+```python
+from sml import parse, execute, SmlRegistry
+
+# Parse the SML document
+doc = parse(prompt_text)
+
+# Register definitions
+registry = SmlRegistry()
+registry.register_from_document(doc)
+
+# Execute
+result = execute(doc, registry)
+```
+
+## Next Steps
+
+Explore the User Guide section in the sidebar for detailed topics on syntax, interfaces, nesting, and error handling.

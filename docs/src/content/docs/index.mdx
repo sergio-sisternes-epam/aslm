@@ -1,0 +1,33 @@
+---
+title: SML — Skill Markup Language
+description: A lightweight markup language for declarative skill invocation in agent prompts.
+template: splash
+hero:
+  tagline: Declarative, composable, nestable skill invocation for AI agents.
+  actions:
+    - text: Get Started
+      link: /aslm/guide/getting-started/
+      icon: right-arrow
+    - text: Language Spec
+      link: /aslm/specification/
+      variant: minimal
+---
+
+## What is SML?
+
+SML (Skill Markup Language) is a lightweight, XML-inspired markup language that enables agents to declaratively invoke modular, scoped, and nestable skills directly inside prompts.
+
+```xml
+<skill interface="code-review" language="python">
+  <param name="file">src/auth.py</param>
+  Review this module for security vulnerabilities.
+</skill>
+```
+
+## Key Features
+
+- **Declarative** — Skills are invoked via markup, not imperative code
+- **Composable** — Full nesting support with bottom-up execution
+- **Resolvable** — Interface/implementation model with hint-based resolution
+- **Safe** — Results are escaped; no re-parsing attacks
+- **Fast** — Rust core with Python bindings via PyO3

@@ -32,3 +32,5 @@ lcov.info
 *.profraw
 htmlcov/
 .coverage
+node_modules/
+dist/
