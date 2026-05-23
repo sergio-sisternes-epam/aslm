@@ -1,0 +1,97 @@
+# SML Formal Grammar (EBNF)
+
+# A document is arbitrary text interspersed with skill tags.
+Document       ::= (Text | SkillNode)*
+
+# Skill nodes come in three mutually exclusive forms:
+SkillNode      ::= Invocation | InterfaceDef | ImplementationDef
+
+# --- INVOCATION ---
+# At least one of: interface, impl, or name (resolution target).
+# Optional: language, framework, retries, timeout.
+Invocation     ::= '<skill' InvocationAttrs '>' InvocationBody '</skill>'
+                 | '<skill' InvocationAttrs '/>'           # self-closing (no scope)
+
+InvocationAttrs ::= (InterfaceAttr | ImplAttr | NameAttr) CommonAttrs*
+
+InterfaceAttr  ::= 'interface' '=' QuotedString
+ImplAttr       ::= 'impl' '=' QuotedString
+NameAttr       ::= 'name' '=' QuotedString
+
+# interface and impl MAY co-occur: runtime validates impl implements interface.
+# name is mutually exclusive with interface/impl.
+# At least one of (interface | impl | name) MUST be present.
+
+CommonAttrs    ::= LanguageAttr | FrameworkAttr | RetriesAttr | TimeoutAttr
+LanguageAttr   ::= 'language' '=' QuotedString
+FrameworkAttr  ::= 'framework' '=' QuotedString
+RetriesAttr    ::= 'retries' '=' QuotedString    # must parse as unsigned integer
+TimeoutAttr    ::= 'timeout' '=' QuotedString    # must parse as duration (e.g. "30s")
+
+InvocationBody ::= (Text | Param | SkillNode)*   # supports nesting + mixed content
+
+# --- PARAMETERS ---
+Param          ::= '<param' 'name' '=' QuotedString '>' ParamValue '</param>'
+ParamValue     ::= Text                           # no nested skill tags in params
+
+# --- INTERFACE DEFINITION ---
+# define="interface" is required. name is required.
+# NOT executable. Registered into SkillRegistry during definition extraction phase.
+InterfaceDef   ::= '<skill' 'define' '=' '"interface"' 'name' '=' QuotedString InterfaceDefAttrs? '>'
+                     Text
+                   '</skill>'
+
+InterfaceDefAttrs ::= DescriptionAttr?
+DescriptionAttr   ::= 'description' '=' QuotedString
+
+# --- IMPLEMENTATION DEFINITION ---
+# define="implementation" is required. name and implements are required.
+# NOT executable. Registered into SkillRegistry during definition extraction phase.
+ImplementationDef ::= '<skill' 'define' '=' '"implementation"'
+                        'name' '=' QuotedString
+                        'implements' '=' QuotedString
+                        ImplDefAttrs?
+                      '>'
+                        Text
+                      '</skill>'
+
+ImplDefAttrs   ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
+
+# --- ATTRIBUTE VALIDATION RULES ---
+# These combinations are INVALID and must be rejected:
+#   - define + interface (definition is not invocation)
+#   - define + impl (definition is not invocation)
+#   - define + retries (definitions don't execute)
+#   - define + timeout (definitions don't execute)
+#   - name + interface (name is direct lookup; use interface OR name)
+#   - name + impl (name is direct lookup; use impl OR name)
+#   - define="interface" without name
+#   - define="implementation" without name or implements
+#   - Invocation without any of: interface, impl, name
+
+# --- LEXICAL RULES ---
+QuotedString   ::= '"' [^"]* '"'                  # double-quoted only
+                 | "'" [^']* "'"                  # single-quoted also allowed
+
+Text           ::= [^<]+                          # any content that is not a tag open
+                 | '<' (?! 'skill' | '/skill' | 'param' | '/param')  # literal '<' not part of a tag
+
+# --- ESCAPING ---
+# Within Text and ParamValue, the following escape sequences are recognised:
+#   &lt;    → <
+#   &gt;    → >
+#   &amp;   → &
+#   &quot;  → "
+#   &apos;  → '
+# No CDATA support. Unknown &entities; are left as-is (not an error).
+
+# --- WHITESPACE ---
+# Whitespace between attributes follows XML rules: at least one whitespace char
+# separates adjacent attributes. Whitespace within Text is preserved verbatim.
+# Leading/trailing whitespace in attribute values is trimmed.
+
+# --- COMMENTS ---
+# SML supports XML-style comments:
+Comment        ::= '<!--' CommentContent '-->'
+CommentContent ::= [^-]* | '-' [^-]+             # no '--' inside comments
+# Comments are stripped during parsing and do not appear in the AST.
