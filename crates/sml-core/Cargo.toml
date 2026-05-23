@@ -1,0 +1,12 @@
+[package]
+name = "sml-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SML (Skill Markup Language) parser and executor"
+
+[dependencies]
+
+[dev-dependencies]
+insta = "1"
