@@ -84,9 +84,171 @@ impl std::error::Error for ParseError {}
 ///
 /// The parser is embedded-tolerant: it extracts `<skill>` and `<param>` tags
 /// from arbitrary text, treating everything else as literal `Text` nodes.
+///
+/// If the input contains an `<aml version="...">` wrapper, the document's
+/// `version` field is populated and the wrapper's children become root nodes.
+/// Only whitespace and comments are allowed outside the `<aml>` wrapper.
 pub fn parse(input: &str) -> Result<Document, ParseError> {
+    // Pre-scan for <aml> root wrapper before generic node parsing.
+    if let Some(aml_result) = try_parse_aml_root(input)? {
+        return Ok(aml_result);
+    }
+
+    // Fragment mode — no <aml> wrapper.
+    // Reject any nested <aml> tags that appear without a root wrapper.
+    reject_nested_aml(input, 0)?;
+
     let nodes = parse_nodes(input, 0)?;
     Ok(Document::new(nodes))
+}
+
+/// Attempt to parse an `<aml version="...">` root wrapper.
+/// Returns `None` if no `<aml>` tag is found at the root level.
+fn try_parse_aml_root(input: &str) -> Result<Option<Document>, ParseError> {
+    const AML_OPEN: &str = "<aml";
+    const AML_CLOSE: &str = "</aml>";
+
+    // Scan for <aml at root level
+    let Some(aml_start) = input.find(AML_OPEN) else {
+        return Ok(None);
+    };
+
+    // Verify the character after "<aml" is valid tag-start
+    let after_tag = &input[aml_start + AML_OPEN.len()..];
+    if !is_tag_start_after(after_tag) {
+        return Ok(None);
+    }
+
+    // Only whitespace/comments allowed before <aml>
+    let before = input[..aml_start].trim();
+    if !before.is_empty() && !is_only_comments(before) {
+        return Err(ParseError {
+            message: "non-whitespace content before <aml> root wrapper is not allowed".to_string(),
+            span: Span::new(0, aml_start),
+        });
+    }
+
+    // Parse the opening tag attributes
+    let tag_rest = &input[aml_start..];
+    let tag_end = find_tag_end(tag_rest).ok_or_else(|| ParseError {
+        message: "unclosed <aml> opening tag".to_string(),
+        span: Span::new(aml_start, aml_start + tag_rest.len().min(50)),
+    })?;
+
+    let is_self_closing = tag_rest[..tag_end].ends_with('/');
+    let attrs_str = if is_self_closing {
+        &tag_rest[AML_OPEN.len()..tag_end - 1]
+    } else {
+        &tag_rest[AML_OPEN.len()..tag_end]
+    };
+
+    let attrs = parse_attributes(attrs_str, aml_start + AML_OPEN.len())?;
+
+    // version is required
+    let version = attrs.get("version").cloned().ok_or_else(|| ParseError {
+        message: "<aml> requires 'version' attribute".to_string(),
+        span: Span::new(aml_start, aml_start + tag_end + 1),
+    })?;
+
+    // Only version attribute allowed
+    for key in attrs.keys() {
+        if key != "version" {
+            return Err(ParseError {
+                message: format!("<aml> does not support '{key}' attribute (only 'version' is allowed)"),
+                span: Span::new(aml_start, aml_start + tag_end + 1),
+            });
+        }
+    }
+
+    if is_self_closing {
+        let after_close = input[aml_start + tag_end + 1..].trim();
+        if !after_close.is_empty() && !is_only_comments(after_close) {
+            return Err(ParseError {
+                message: "non-whitespace content after <aml/> root wrapper is not allowed".to_string(),
+                span: Span::new(aml_start + tag_end + 1, input.len()),
+            });
+        }
+        return Ok(Some(Document::with_version(version, Vec::new())));
+    }
+
+    // Find </aml> close tag
+    let content_start = aml_start + tag_end + 1;
+    let close_pos = input[content_start..].find(AML_CLOSE).ok_or_else(|| ParseError {
+        message: "unclosed <aml> tag — missing </aml>".to_string(),
+        span: Span::new(aml_start, input.len()),
+    })?;
+
+    let content = &input[content_start..content_start + close_pos];
+
+    // Check for nested <aml> inside the content (before checking after-close,
+    // since nested <aml> can cause the wrong </aml> to be matched first).
+    reject_nested_aml(content, content_start)?;
+
+    // Only whitespace/comments allowed after </aml>
+    let after_close = input[content_start + close_pos + AML_CLOSE.len()..].trim();
+    if !after_close.is_empty() && !is_only_comments(after_close) {
+        return Err(ParseError {
+            message: "non-whitespace content after </aml> is not allowed".to_string(),
+            span: Span::new(content_start + close_pos + AML_CLOSE.len(), input.len()),
+        });
+    }
+
+    // Check for multiple <aml> at root
+    let remaining_after_close = &input[content_start + close_pos + AML_CLOSE.len()..];
+    if let Some(second) = remaining_after_close.find(AML_OPEN) {
+        let abs = content_start + close_pos + AML_CLOSE.len() + second;
+        let after = &remaining_after_close[second + AML_OPEN.len()..];
+        if is_tag_start_after(after) {
+            return Err(ParseError {
+                message: "multiple <aml> root wrappers are not allowed".to_string(),
+                span: Span::new(abs, abs + 20),
+            });
+        }
+    }
+
+    let nodes = parse_nodes(content, content_start)?;
+    Ok(Some(Document::with_version(version, nodes)))
+}
+
+/// Reject any `<aml` tags in content (they can only appear as root wrapper).
+fn reject_nested_aml(content: &str, base_offset: usize) -> Result<(), ParseError> {
+    let mut search_pos = 0;
+    while let Some(pos) = content[search_pos..].find("<aml") {
+        let abs = search_pos + pos;
+        let after = &content[abs + 4..];
+        if is_tag_start_after(after) {
+            return Err(ParseError {
+                message: "<aml> cannot appear nested inside other content; it is only valid as a root wrapper".to_string(),
+                span: Span::new(base_offset + abs, base_offset + abs + 20),
+            });
+        }
+        search_pos = abs + 4;
+    }
+    Ok(())
+}
+
+/// Check if a string contains only XML comments and whitespace.
+fn is_only_comments(s: &str) -> bool {
+    let mut pos = 0;
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let bytes = trimmed.as_bytes();
+    while pos < bytes.len() {
+        if trimmed[pos..].starts_with("<!--") {
+            if let Some(end) = trimmed[pos..].find("-->") {
+                pos += end + 3;
+            } else {
+                return false;
+            }
+        } else if bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        } else {
+            return false;
+        }
+    }
+    true
 }
 
 /// Detect which tag name starts at `s`, if any.
@@ -1143,4 +1305,98 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("unclosed"));
     }
+
+    // ── <aml> root wrapper tests ──
+
+    #[test]
+    fn test_aml_root_with_version() {
+        let doc = parse(r#"<aml version="0.1"><skill name="x">body</skill></aml>"#).unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+        assert_eq!(doc.nodes.len(), 1);
+        assert!(matches!(&doc.nodes[0], Node::Skill { .. }));
+    }
+
+    #[test]
+    fn test_aml_root_with_whitespace_around() {
+        let doc = parse("  \n<aml version=\"0.1\">\n  <skill name=\"x\">y</skill>\n</aml>\n  ").unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+    }
+
+    #[test]
+    fn test_aml_root_with_comments_around() {
+        let doc = parse("<!-- header -->\n<aml version=\"0.1\"><skill name=\"x\">y</skill></aml>\n<!-- footer -->").unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+    }
+
+    #[test]
+    fn test_fragment_mode_no_aml() {
+        let doc = parse(r#"<skill name="x">body</skill>"#).unwrap();
+        assert!(doc.version.is_none());
+        assert_eq!(doc.nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_aml_missing_version() {
+        let err = parse("<aml><skill name=\"x\">y</skill></aml>").unwrap_err();
+        assert!(err.message.contains("version"), "should require version: {}", err.message);
+    }
+
+    #[test]
+    fn test_aml_unknown_attribute() {
+        let err = parse(r#"<aml version="0.1" encoding="utf-8"><skill name="x">y</skill></aml>"#).unwrap_err();
+        assert!(err.message.contains("encoding"), "should reject unknown attr: {}", err.message);
+    }
+
+    #[test]
+    fn test_aml_text_before_error() {
+        let err = parse(r#"some text <aml version="0.1"><skill name="x">y</skill></aml>"#).unwrap_err();
+        assert!(err.message.contains("non-whitespace content before"), "{}", err.message);
+    }
+
+    #[test]
+    fn test_aml_text_after_error() {
+        let err = parse(r#"<aml version="0.1"><skill name="x">y</skill></aml> trailing text"#).unwrap_err();
+        assert!(err.message.contains("non-whitespace content after"), "{}", err.message);
+    }
+
+    #[test]
+    fn test_aml_nested_error() {
+        let err = parse(r#"<aml version="0.1"><aml version="0.2"><skill name="x">y</skill></aml></aml>"#).unwrap_err();
+        assert!(err.message.contains("nested"), "{}", err.message);
+    }
+
+    #[test]
+    fn test_aml_nested_in_skill_error() {
+        let err = parse(r#"<aml version="0.1"><skill name="x"><aml version="0.2">y</aml></skill></aml>"#).unwrap_err();
+        assert!(err.message.contains("nested"), "{}", err.message);
+    }
+
+    #[test]
+    fn test_aml_self_closing() {
+        let doc = parse(r#"<aml version="0.1"/>"#).unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+        assert!(doc.nodes.is_empty());
+    }
+
+    #[test]
+    fn test_aml_unclosed_error() {
+        let err = parse(r#"<aml version="0.1"><skill name="x">y</skill>"#).unwrap_err();
+        assert!(err.message.contains("unclosed") || err.message.contains("missing </aml>"),
+            "{}", err.message);
+    }
+
+    #[test]
+    fn test_aml_preserves_children() {
+        let doc = parse(r#"<aml version="0.1">
+            <tool name="grep">
+                <skill name="search">find things</skill>
+            </tool>
+            <agent name="worker">do work</agent>
+        </aml>"#).unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+        // Should have text + tool + text + agent + text nodes
+        let non_text: Vec<_> = doc.nodes.iter().filter(|n| !matches!(n, Node::Text(_))).collect();
+        assert_eq!(non_text.len(), 2, "should have tool + agent: {:?}", non_text);
+    }
 }
+

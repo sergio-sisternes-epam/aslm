@@ -13,6 +13,30 @@ AML directives are tags that instruct the runtime *how* to execute content, comp
 | Session isolation | Execute content in a separate session | `<session>` |
 | Agent delegation | Delegate execution to a subagent | `<agent>` |
 
+## `<aml>` — Document Root (Optional)
+
+Wrap an entire AML document in an `<aml>` tag to declare the AML version:
+
+```xml
+<aml version="0.1">
+  <skill name="analyser">analyse the codebase</skill>
+</aml>
+```
+
+The `<aml>` wrapper is **optional**. When omitted, the parser operates in fragment
+mode — extracting tags from arbitrary text. When present:
+
+- `version` attribute is **required**
+- Only whitespace and XML comments are allowed outside the wrapper
+- `<aml>` cannot appear nested inside other tags
+- Only one `<aml>` wrapper is allowed per document
+
+### Attributes
+
+| Attribute | Required | Description |
+|---|---|---|
+| `version` | Yes | AML specification version (e.g. `"0.1"`) |
+
 ## `<tool>` — Tool Constraints
 
 Constrain which tools are available to skills within the scope:

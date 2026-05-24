@@ -276,13 +276,20 @@ impl Node {
 /// The root of an AML document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
+    /// AML version from `<aml version="...">` wrapper, if present.
+    pub version: Option<String>,
     pub nodes: Vec<Node>,
 }
 
 impl Document {
     #[must_use]
     pub fn new(nodes: Vec<Node>) -> Self {
-        Self { nodes }
+        Self { version: None, nodes }
+    }
+
+    #[must_use]
+    pub fn with_version(version: String, nodes: Vec<Node>) -> Self {
+        Self { version: Some(version), nodes }
     }
 
     /// Iterate over all skill nodes (flat, non-recursive).

@@ -107,6 +107,22 @@ Here `fetch-url` runs first, its output becomes the scope for `summarise`.
 </skill>
 ```
 
+## Document Root (Optional)
+
+Wrap content in an `<aml>` tag to declare the version:
+
+```xml
+<aml version="0.1">
+  <skill interface="analyse">scan the codebase</skill>
+</aml>
+```
+
+The `<aml>` wrapper is **optional**. When omitted, tags are extracted from
+arbitrary text (fragment mode). When present:
+- `version` is required
+- Only whitespace/comments allowed outside the wrapper
+- Cannot be nested
+
 ## Directives
 
 AML has three directive tags that control *how* content is executed:
