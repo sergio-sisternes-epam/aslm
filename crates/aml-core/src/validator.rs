@@ -29,6 +29,14 @@ impl std::fmt::Display for ValidationError {
     }
 }
 
+/// Split a comma-separated attribute into non-empty trimmed tool names.
+fn parse_tool_list(value: &str) -> Vec<String> {
+    value.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// Active tool constraints inherited from ancestor `<tool>` directives.
 #[derive(Debug, Clone, Default)]
 struct ToolConstraints {
@@ -39,17 +47,9 @@ struct ToolConstraints {
 }
 
 impl ToolConstraints {
-    /// Split a comma-separated attribute into non-empty trimmed tool names.
-    fn parse_tool_list(value: &str) -> Vec<String> {
-        value.split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    }
-
     /// Union child deny-list into accumulated denies and clean inherited allows.
     fn apply_deny(&mut self, deny: &str) {
-        for tool in Self::parse_tool_list(deny) {
+        for tool in parse_tool_list(deny) {
             if !self.denied.contains(&tool) {
                 self.denied.push(tool.clone());
                 if let Some(ref mut allowed) = self.allowed {
@@ -62,7 +62,7 @@ impl ToolConstraints {
     /// Intersect child allow-list with accumulated constraints, emitting warnings.
     fn apply_allow(&mut self, allow: &str, parent: &ToolConstraints) -> Vec<String> {
         let mut warnings = Vec::new();
-        let requested = Self::parse_tool_list(allow);
+        let requested = parse_tool_list(allow);
 
         for tool in &requested {
             if self.denied.contains(tool) {
@@ -82,7 +82,6 @@ impl ToolConstraints {
             }
         }
 
-        // Use self.denied (includes this node's denies) for effective computation
         let effective = if let Some(parent_allowed) = &parent.allowed {
             requested.iter()
                 .filter(|t| parent_allowed.contains(t) && !self.denied.contains(t))
@@ -101,30 +100,30 @@ impl ToolConstraints {
     /// Apply name shorthand as singleton allow-list, emitting warnings.
     fn apply_name(&mut self, name: &str, parent: &ToolConstraints) -> Vec<String> {
         let mut warnings = Vec::new();
+        let name_s = name.to_string();
 
-        if self.denied.contains(&name.to_string()) {
+        if self.denied.contains(&name_s) {
             warnings.push(format!(
                 "tool '{name}' is requested but denied by an ancestor <tool> directive"
             ));
         }
         if let Some(parent_allowed) = &parent.allowed {
-            if !parent_allowed.contains(&name.to_string()) {
+            if !parent_allowed.contains(&name_s) && !self.denied.contains(&name_s) {
                 warnings.push(format!(
                     "tool '{name}' is requested but not in ancestor's allow-list"
                 ));
             }
         }
 
-        // Narrow to singleton (or empty if denied/outside parent scope)
-        if !self.denied.contains(&name.to_string()) {
+        if !self.denied.contains(&name_s) {
             if let Some(parent_allowed) = &parent.allowed {
-                if parent_allowed.contains(&name.to_string()) {
-                    self.allowed = Some(vec![name.to_string()]);
+                if parent_allowed.contains(&name_s) {
+                    self.allowed = Some(vec![name_s]);
                 } else {
                     self.allowed = Some(vec![]);
                 }
             } else {
-                self.allowed = Some(vec![name.to_string()]);
+                self.allowed = Some(vec![name_s]);
             }
         } else {
             self.allowed = Some(vec![]);
@@ -185,17 +184,24 @@ fn validate_node(node: &Node, constraints: &ToolConstraints, errors: &mut Vec<Va
         } => {
             validate_directive(kind, *span, errors);
 
-            // Compute new constraints if this is a tool directive
+            // Compute new constraints if this is a valid tool directive.
+            // Skip constraint derivation for errored tools (e.g. allow+deny)
+            // to avoid spurious downstream warnings.
             let child_constraints = if let DirectiveKind::Tool(tool) = kind {
-                let (new_constraints, warnings) = constraints.apply(tool);
-                for warning in warnings {
-                    errors.push(ValidationError {
-                        message: warning,
-                        span: Some(*span),
-                        severity: Severity::Warning,
-                    });
+                let has_tool_error = tool.allow.is_some() && tool.deny.is_some();
+                if has_tool_error {
+                    constraints.clone()
+                } else {
+                    let (new_constraints, warnings) = constraints.apply(tool);
+                    for warning in warnings {
+                        errors.push(ValidationError {
+                            message: warning,
+                            span: Some(*span),
+                            severity: Severity::Warning,
+                        });
+                    }
+                    new_constraints
                 }
-                new_constraints
             } else {
                 constraints.clone()
             };
@@ -667,5 +673,88 @@ mod tests {
         let (after, _) = root.apply(&tool);
         assert_eq!(after.allowed.as_ref().unwrap(), &vec!["bash", "grep"],
             "empty entries should be filtered: {:?}", after.allowed);
+    }
+
+    // ── Iteration 2 tests ──
+
+    #[test]
+    fn test_four_level_nesting() {
+        // allow="bash,grep,view,sql,web_search" → deny="web_search" → allow="bash,grep" → name="grep"
+        let l1 = ToolDirective { name: None, allow: Some("bash,grep,view,sql,web_search".into()), deny: None };
+        let l2 = ToolDirective { name: None, allow: None, deny: Some("web_search".into()) };
+        let l3 = ToolDirective { name: None, allow: Some("bash,grep".into()), deny: None };
+        let l4 = ToolDirective { name: Some("grep".into()), allow: None, deny: None };
+
+        let root = ToolConstraints::default();
+        let (s1, w1) = root.apply(&l1);
+        assert!(w1.is_empty());
+        let (s2, w2) = s1.apply(&l2);
+        assert!(w2.is_empty());
+        let (s3, w3) = s2.apply(&l3);
+        assert!(w3.is_empty());
+        let (s4, w4) = s3.apply(&l4);
+        assert!(w4.is_empty());
+        assert_eq!(s4.allowed.as_ref().unwrap(), &vec!["grep"],
+            "4-level narrowing should end with grep only: {:?}", s4.allowed);
+    }
+
+    #[test]
+    fn test_name_then_deny_conflict_at_depth() {
+        // allow="a,b,c" → name="a" → deny="a" → effective should be empty
+        let l1 = ToolDirective { name: None, allow: Some("a,b,c".into()), deny: None };
+        let l2 = ToolDirective { name: Some("a".into()), allow: None, deny: None };
+        let l3 = ToolDirective { name: None, allow: None, deny: Some("a".into()) };
+
+        let root = ToolConstraints::default();
+        let (s1, _) = root.apply(&l1);
+        let (s2, _) = s1.apply(&l2);
+        assert_eq!(s2.allowed.as_ref().unwrap(), &vec!["a"]);
+        let (s3, _) = s2.apply(&l3);
+        assert!(s3.allowed.as_ref().unwrap().is_empty(),
+            "deny at level 3 should remove a from allowed: {:?}", s3.allowed);
+        assert!(s3.denied.contains(&"a".to_string()));
+    }
+
+    #[test]
+    fn test_parent_allow_with_name_narrowing() {
+        // allow="bash,grep" → name="bash" → effective should be ["bash"]
+        let l1 = ToolDirective { name: None, allow: Some("bash,grep".into()), deny: None };
+        let l2 = ToolDirective { name: Some("bash".into()), allow: None, deny: None };
+
+        let root = ToolConstraints::default();
+        let (s1, _) = root.apply(&l1);
+        let (s2, warnings) = s1.apply(&l2);
+        assert!(warnings.is_empty(), "bash is in parent allow-list, no warning: {:?}", warnings);
+        assert_eq!(s2.allowed.as_ref().unwrap(), &vec!["bash"],
+            "name should narrow to bash only: {:?}", s2.allowed);
+    }
+
+    #[test]
+    fn test_errored_tool_does_not_propagate_constraints() {
+        // <tool allow="bash" deny="bash"> is an error — children should not get derived constraints
+        let doc = parse(
+            r#"<tool allow="bash" deny="bash"><tool allow="grep">x</tool></tool>"#
+        ).unwrap();
+        let errors = validate(&doc.nodes);
+        let hard_errors: Vec<_> = errors.iter().filter(|e| e.severity == Severity::Error).collect();
+        let warnings: Vec<_> = errors.iter().filter(|e| e.severity == Severity::Warning).collect();
+        assert_eq!(hard_errors.len(), 1, "should have mutual exclusivity error: {:?}", errors);
+        // The inner <tool allow="grep"> should NOT produce a spurious "not in ancestor's allow-list" warning
+        assert!(warnings.is_empty(),
+            "errored parent should not produce downstream warnings: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_apply_name_no_double_warning() {
+        // When name is denied AND not in parent allow, should produce only 1 warning (denied)
+        let parent = ToolConstraints {
+            allowed: Some(vec!["bash".into()]),
+            denied: vec!["grep".into()],
+        };
+        let tool = ToolDirective { name: Some("grep".into()), allow: None, deny: None };
+        let (_, warnings) = parent.apply(&tool);
+        assert_eq!(warnings.len(), 1,
+            "denied name should produce exactly 1 warning, not 2: {:?}", warnings);
+        assert!(warnings[0].contains("denied"));
     }
 }
