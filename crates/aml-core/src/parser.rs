@@ -440,14 +440,16 @@ fn parse_skill_tag(input: &str, offset: usize) -> Result<(Node, usize), ParseErr
 
     // For implementation definitions, parse the body for node declarations
     if matches!(kind, NodeKind::ImplementationDefinition { .. }) {
-        let (decl_nodes, children) =
-            parse_implementation_body(content, offset + content_start)?;
+        let body = parse_implementation_body(content, offset + content_start)?;
 
         if let NodeKind::ImplementationDefinition {
-            ref mut nodes, ..
+            ref mut nodes,
+            ref mut skill_refs,
+            ..
         } = kind
         {
-            *nodes = decl_nodes;
+            *nodes = body.nodes;
+            *skill_refs = body.skill_refs;
         }
 
         let total_consumed = content_start + content_end + close_tag_end;
@@ -455,7 +457,7 @@ fn parse_skill_tag(input: &str, offset: usize) -> Result<(Node, usize), ParseErr
             Node::Skill {
                 kind,
                 params: Vec::new(),
-                children,
+                children: body.children,
                 span: Span::new(offset, offset + total_consumed),
             },
             total_consumed,
@@ -851,6 +853,80 @@ fn try_parse_skill_ref(
     )))
 }
 
+/// Try to parse a `<skill ref="...">` as a wrapping or self-closing skill reference
+/// within an implementation body. For wrapping form, recursively extracts `<node>`
+/// declarations from the inner content and appends them to `parent_nodes`.
+fn try_parse_skill_ref_with_content(
+    input: &str,
+    base_offset: usize,
+    parent_nodes: &mut Vec<NodeDecl>,
+) -> Result<Option<(SkillRef, usize)>, ParseError> {
+    let tag_end = find_tag_end(input).ok_or_else(|| ParseError {
+        message: "unclosed <skill> tag".to_string(),
+        span: Span::new(base_offset, base_offset + input.len().min(50)),
+    })?;
+
+    let is_self_closing = input[..tag_end].ends_with('/');
+    let attrs_str = if is_self_closing {
+        &input[6..tag_end - 1]
+    } else {
+        &input[6..tag_end]
+    };
+
+    let attrs = parse_attributes(attrs_str, base_offset + 6)?;
+
+    let Some(ref_name) = attrs.get("ref").cloned() else {
+        return Ok(None);
+    };
+
+    // Reject if conflicting attributes are present
+    for conflict in &["interface", "impl", "define", "name"] {
+        if attrs.contains_key(*conflict) {
+            return Err(ParseError {
+                message: format!(
+                    "<skill ref=\"{ref_name}\"> must not have '{conflict}' attribute"
+                ),
+                span: Span::new(base_offset, base_offset + tag_end + 1),
+            });
+        }
+    }
+
+    let role = attrs.get("role").cloned();
+
+    if is_self_closing {
+        let consumed = tag_end + 1;
+        return Ok(Some((
+            SkillRef {
+                ref_name,
+                role,
+                span: Span::new(base_offset, base_offset + consumed),
+            },
+            consumed,
+        )));
+    }
+
+    // Wrapping form: find matching </skill>, extract inner content for nodes
+    let content_start = tag_end + 1;
+    let (content_end, close_tag_end) =
+        find_matching_close(TagName::Skill, &input[content_start..], base_offset + content_start)?;
+
+    let inner_content = &input[content_start..content_start + content_end];
+
+    // Recursively parse the inner content for <node> declarations
+    let inner_body = parse_implementation_body(inner_content, base_offset + content_start)?;
+    parent_nodes.extend(inner_body.nodes);
+
+    let consumed = content_start + content_end + close_tag_end;
+    Ok(Some((
+        SkillRef {
+            ref_name,
+            role,
+            span: Span::new(base_offset, base_offset + consumed),
+        },
+        consumed,
+    )))
+}
+
 /// Try to parse a `<tool allow="..." />` or `<tool deny="..." />` as an interface contract constraint.
 /// Returns `None` if the tag is not self-closing or has incompatible attributes.
 fn try_parse_tool_constraint(
@@ -961,12 +1037,20 @@ fn find_next_impl_tag(s: &str) -> Option<usize> {
 }
 
 /// Parse the body of an implementation definition, extracting node declarations.
+/// Parsed implementation body result.
+struct ParsedImplementationBody {
+    nodes: Vec<NodeDecl>,
+    skill_refs: Vec<SkillRef>,
+    children: Vec<Node>,
+}
+
 /// Returns (nodes, remaining children).
 fn parse_implementation_body(
     input: &str,
     base_offset: usize,
-) -> Result<(Vec<NodeDecl>, Vec<Node>), ParseError> {
+) -> Result<ParsedImplementationBody, ParseError> {
     let mut nodes = Vec::new();
+    let mut skill_refs = Vec::new();
     let mut children = Vec::new();
     let mut pos = 0;
 
@@ -1004,6 +1088,14 @@ fn parse_implementation_body(
         if let Some(tag) = detect_open_tag(&input[pos..]) {
             match tag {
                 TagName::Skill => {
+                    // Check for wrapping or self-closing <skill ref="...">
+                    if let Some((sr, consumed)) =
+                        try_parse_skill_ref_with_content(&input[pos..], base_offset + pos, &mut nodes)?
+                    {
+                        skill_refs.push(sr);
+                        pos += consumed;
+                        continue;
+                    }
                     let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
                     children.push(node);
                     pos += consumed;
@@ -1042,7 +1134,7 @@ fn parse_implementation_body(
     }
 
     merge_text_nodes(&mut children);
-    Ok((nodes, children))
+    Ok(ParsedImplementationBody { nodes, skill_refs, children })
 }
 
 /// Parse a `<node name="..." type="...">` declaration inside an implementation body.
@@ -1612,6 +1704,7 @@ fn build_node_kind(attrs: &HashMap<String, String>, offset: usize) -> Result<Nod
                     framework: attrs.get("framework").cloned(),
                     description: attrs.get("description").cloned(),
                     nodes: Vec::new(),
+                    skill_refs: Vec::new(),
                 })
             }
             other => Err(ParseError {
@@ -2540,6 +2633,60 @@ mod tests {
         if let Node::Skill { kind: NodeKind::ImplementationDefinition { name, nodes, .. }, .. } = &doc.nodes[0] {
             assert_eq!(name, "simple-impl");
             assert!(nodes.is_empty());
+        } else {
+            panic!("expected ImplementationDefinition");
+        }
+    }
+
+    #[test]
+    fn test_parse_wrapping_skill_ref_extracts_nodes() {
+        let doc = parse(r#"<skill define="implementation" name="brain-handler" implements="brain-query">
+  <skill ref="dde" role="enforcement">
+    ```mermaid
+    flowchart LR
+        A[Rename] --> B[Synthesise]
+    ```
+
+    <node name="Rename" type="tool">
+      <tool use="rename_session" />
+      Rename this session
+    </node>
+
+    <node name="Synthesise" type="prompt">
+      Drill into candidate pages
+    </node>
+  </skill>
+</skill>"#).unwrap();
+
+        if let Node::Skill { kind: NodeKind::ImplementationDefinition { name, nodes, skill_refs, .. }, .. } = &doc.nodes[0] {
+            assert_eq!(name, "brain-handler");
+            assert_eq!(skill_refs.len(), 1);
+            assert_eq!(skill_refs[0].ref_name, "dde");
+            assert_eq!(skill_refs[0].role, Some("enforcement".to_string()));
+            // Nodes should be extracted from inside the wrapping <skill ref>
+            assert_eq!(nodes.len(), 2, "expected 2 nodes extracted from wrapping skill ref, got {}", nodes.len());
+            assert_eq!(nodes[0].name, "Rename");
+            assert_eq!(nodes[0].node_type, crate::ast::NodeType::Tool);
+            assert_eq!(nodes[0].tool_use, Some("rename_session".to_string()));
+            assert_eq!(nodes[1].name, "Synthesise");
+            assert_eq!(nodes[1].node_type, crate::ast::NodeType::Prompt);
+        } else {
+            panic!("expected ImplementationDefinition");
+        }
+    }
+
+    #[test]
+    fn test_parse_self_closing_skill_ref_in_implementation() {
+        let doc = parse(r#"<skill define="implementation" name="impl1" implements="test">
+  <skill ref="dde" />
+  <node name="Step1" type="prompt">Do something</node>
+</skill>"#).unwrap();
+
+        if let Node::Skill { kind: NodeKind::ImplementationDefinition { skill_refs, nodes, .. }, .. } = &doc.nodes[0] {
+            assert_eq!(skill_refs.len(), 1);
+            assert_eq!(skill_refs[0].ref_name, "dde");
+            assert_eq!(nodes.len(), 1);
+            assert_eq!(nodes[0].name, "Step1");
         } else {
             panic!("expected ImplementationDefinition");
         }

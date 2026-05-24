@@ -180,6 +180,7 @@ impl SkillRegistry {
                 framework,
                 description,
                 nodes,
+                ..
             } => self.register_implementation(
                 name.clone(),
                 implements.clone(),

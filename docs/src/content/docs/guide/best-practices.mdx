@@ -1,0 +1,122 @@
+---
+title: Best Practices
+description: Real-world AML authoring patterns and conventions.
+---
+
+Patterns and conventions refined through real-world AML usage in production skill systems.
+
+## 1. Wrapping `<skill ref>` for scoped governance
+
+`<skill ref>` supports two forms:
+
+- **Self-closing** — a flat dependency declaration:
+
+```xml
+<skill ref="dde" role="enforcement" />
+```
+
+- **Wrapping** — scoped governance, where the ref owns the enclosed content:
+
+```xml
+<skill define="implementation" name="brain-query-handler" implements="brain-query">
+  <skill ref="dde" role="enforcement">
+    ```mermaid
+    flowchart LR
+        A[Rename] --> B[ReadIndex] --> C[Synthesise]
+    ```
+
+    <node name="Rename" type="tool">
+      <tool use="rename_session" />
+      Rename this session with pattern `query-<brief-description>`
+    </node>
+
+    <node name="Synthesise" type="prompt">
+      Drill into candidate pages, synthesise citation-backed answer
+    </node>
+  </skill>
+</skill>
+```
+
+**Why the wrapping form matters:** The scope of enforcement is structurally explicit. An agent loading this skill sees `<skill ref="dde">` and knows to load DDE *before* processing the children. It is compositional — swapping the execution engine means swapping the wrapping ref.
+
+The parser extracts `<node>` declarations from inside the wrapper into the parent implementation's `nodes` list, so they participate in validation and registry registration as normal.
+
+## 2. Placeholder convention: use `{curly braces}`
+
+Inside AML documents, template placeholders **must** use curly braces, never angle brackets:
+
+| ✅ Correct | ❌ Incorrect |
+|-----------|-------------|
+| `{question}` | `<question>` |
+| `{date}` | `<date>` |
+| `{category}` | `<category>` |
+
+Angle-bracket placeholders break syntax highlighting, confuse parsers, and can be misinterpreted as unknown AML tags. This is a **hard rule**.
+
+## 3. Description prefix convention: `define/` and `implement/`
+
+When splitting skills into interface and implementation, use a structured prefix in the frontmatter `description` field:
+
+- **Interface skill:** `define/brain-query — Exposes the brain-query interface...`
+- **Implementation skill:** `implement/brain-query — Internal handler that executes...`
+
+This pattern enables:
+- Models to match interface↔implementation pairs by scanning descriptions alone
+- Clear disambiguation in skill listings and search results
+- Consistent dispatch from descriptions without loading full skill files
+
+## 4. Interface/Implementation split pattern
+
+DDE-enforced skills benefit from splitting into two separate skill files:
+
+- **External skill** (e.g. `brain-query`): Contains `<skill define="interface">`, routing instructions for external agents, and the access model. This is what gets published.
+- **Internal handler** (e.g. `brain-query-handler`): Contains `<skill define="implementation" implements="brain-query">` with the actual DDE flowchart and node definitions. This stays internal.
+
+The interface references the handler:
+
+```xml
+<!-- brain-query (external) -->
+<skill define="interface" name="brain-query">
+  <param name="question" type="string" required="true">The question to answer</param>
+  <returns name="answer" type="string">Citation-backed answer</returns>
+  <reads>wiki/index.md, wiki/**/*.md</reads>
+  <writes>raw/brain-questions.md</writes>
+  <skill ref="brain-query-handler" role="implementation" />
+</skill>
+```
+
+```xml
+<!-- brain-query-handler (internal) -->
+<skill define="implementation" name="brain-query-handler" implements="brain-query">
+  <skill ref="dde" role="enforcement">
+    <!-- mermaid flowchart and <node> declarations -->
+  </skill>
+</skill>
+```
+
+## 5. `<tool allow>` with usage annotations
+
+Include brief usage annotations alongside tool constraints to explain *why* each tool is allowed:
+
+```xml
+<skill define="interface" name="brain-query">
+  <tool allow="rename_session,send_session_message,view,edit,bash" />
+</skill>
+```
+
+For more detailed annotations, place prose adjacent to a self-closing constraint:
+
+```xml
+<skill define="interface" name="brain-query">
+  <tool allow="rename_session,send_session_message,view,edit,bash" />
+
+  Tool usage:
+  - `rename_session` — rename brain session to kebab-case pattern
+  - `send_session_message` — reply to caller with answer
+  - `view` — read wiki pages and index
+  - `edit` — update brain-questions.md
+  - `bash` — git commit and push to main
+</skill>
+```
+
+This helps models understand the *purpose* of each allowed tool, not just that it is permitted.

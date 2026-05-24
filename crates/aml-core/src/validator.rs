@@ -306,7 +306,7 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
             validate_tool_constraints(tool_constraints, span, errors);
         }
         NodeKind::ImplementationDefinition {
-            name, implements, nodes, ..
+            name, implements, nodes, skill_refs, ..
         } => {
             if name.is_empty() {
                 errors.push(ValidationError {
@@ -324,6 +324,7 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                 });
             }
             validate_node_declarations(nodes, span, errors);
+            validate_skill_refs(skill_refs, span, errors);
         }
     }
 }

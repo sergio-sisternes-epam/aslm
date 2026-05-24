@@ -75,6 +75,8 @@ pub enum NodeKind {
         description: Option<String>,
         /// DDE node declarations.
         nodes: Vec<NodeDecl>,
+        /// Skill references (e.g. DDE enforcement wrappers).
+        skill_refs: Vec<SkillRef>,
     },
 }
 

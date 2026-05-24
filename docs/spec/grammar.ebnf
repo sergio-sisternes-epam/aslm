@@ -70,10 +70,16 @@ ReturnsDeclAttrs ::= 'name' '=' QuotedString
 ReadsDecl      ::= '<reads>' Text '</reads>'
 WritesDecl     ::= '<writes>' Text '</writes>'
 
-# --- SKILL REFERENCE (inside interface definitions) ---
+# --- SKILL REFERENCE (inside interface or implementation definitions) ---
 # References another skill (e.g. for DDE enforcement).
+# Self-closing form: flat dependency declaration.
+# Wrapping form: scoped governance — enclosed content is governed by the ref.
+# In implementation bodies, <node> declarations inside wrapping refs are
+# extracted into the parent implementation's nodes list.
 SkillRefDecl   ::= '<skill' 'ref' '=' QuotedString SkillRefAttrs? '/>'
+                 | '<skill' 'ref' '=' QuotedString SkillRefAttrs? '>' SkillRefBody '</skill>'
 SkillRefAttrs  ::= 'role' '=' QuotedString
+SkillRefBody   ::= (Text | NodeDecl)*           # wrapping form may contain nodes
 
 # --- TOOL CONSTRAINT (inside interface definitions) ---
 # Declares allowed/denied tools as part of the interface contract.
@@ -94,7 +100,7 @@ ImplementationDef ::= '<skill' 'define' '=' '"implementation"'
 
 ImplDefAttrs       ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
 
-ImplementationBody ::= (Text | NodeDecl)*
+ImplementationBody ::= (Text | NodeDecl | SkillRefDecl)*
 
 # --- NODE DECLARATIONS (inside implementation definitions) ---
 # Each node describes one step in a DDE flowchart.
