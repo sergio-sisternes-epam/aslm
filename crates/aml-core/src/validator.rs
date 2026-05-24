@@ -39,98 +39,122 @@ struct ToolConstraints {
 }
 
 impl ToolConstraints {
+    /// Split a comma-separated attribute into non-empty trimmed tool names.
+    fn parse_tool_list(value: &str) -> Vec<String> {
+        value.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    /// Union child deny-list into accumulated denies and clean inherited allows.
+    fn apply_deny(&mut self, deny: &str) {
+        for tool in Self::parse_tool_list(deny) {
+            if !self.denied.contains(&tool) {
+                self.denied.push(tool.clone());
+                if let Some(ref mut allowed) = self.allowed {
+                    allowed.retain(|t| t != &tool);
+                }
+            }
+        }
+    }
+
+    /// Intersect child allow-list with accumulated constraints, emitting warnings.
+    fn apply_allow(&mut self, allow: &str, parent: &ToolConstraints) -> Vec<String> {
+        let mut warnings = Vec::new();
+        let requested = Self::parse_tool_list(allow);
+
+        for tool in &requested {
+            if self.denied.contains(tool) {
+                warnings.push(format!(
+                    "tool '{tool}' is allowed here but denied by an ancestor <tool> directive"
+                ));
+            }
+        }
+
+        if let Some(parent_allowed) = &parent.allowed {
+            for tool in &requested {
+                if !parent_allowed.contains(tool) && !self.denied.contains(tool) {
+                    warnings.push(format!(
+                        "tool '{tool}' is allowed here but not in ancestor's allow-list"
+                    ));
+                }
+            }
+        }
+
+        // Use self.denied (includes this node's denies) for effective computation
+        let effective = if let Some(parent_allowed) = &parent.allowed {
+            requested.iter()
+                .filter(|t| parent_allowed.contains(t) && !self.denied.contains(t))
+                .cloned()
+                .collect()
+        } else {
+            requested.into_iter()
+                .filter(|t| !self.denied.contains(t))
+                .collect()
+        };
+        self.allowed = Some(effective);
+
+        warnings
+    }
+
+    /// Apply name shorthand as singleton allow-list, emitting warnings.
+    fn apply_name(&mut self, name: &str, parent: &ToolConstraints) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        if self.denied.contains(&name.to_string()) {
+            warnings.push(format!(
+                "tool '{name}' is requested but denied by an ancestor <tool> directive"
+            ));
+        }
+        if let Some(parent_allowed) = &parent.allowed {
+            if !parent_allowed.contains(&name.to_string()) {
+                warnings.push(format!(
+                    "tool '{name}' is requested but not in ancestor's allow-list"
+                ));
+            }
+        }
+
+        // Narrow to singleton (or empty if denied/outside parent scope)
+        if !self.denied.contains(&name.to_string()) {
+            if let Some(parent_allowed) = &parent.allowed {
+                if parent_allowed.contains(&name.to_string()) {
+                    self.allowed = Some(vec![name.to_string()]);
+                } else {
+                    self.allowed = Some(vec![]);
+                }
+            } else {
+                self.allowed = Some(vec![name.to_string()]);
+            }
+        } else {
+            self.allowed = Some(vec![]);
+        }
+
+        warnings
+    }
+
     fn apply(&self, child: &ToolDirective) -> (Self, Vec<String>) {
         let mut warnings = Vec::new();
         let mut new = self.clone();
 
-        // Union denies — and remove newly-denied tools from the inherited allow-list
+        // Phase 1: union denies (runs first so deny state is current for allow/name)
         if let Some(deny) = &child.deny {
-            for tool in deny.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
-                if !new.denied.contains(&tool) {
-                    new.denied.push(tool.clone());
-                    if let Some(ref mut allowed) = new.allowed {
-                        allowed.retain(|t| t != &tool);
-                    }
-                }
-            }
+            new.apply_deny(deny);
         }
 
-        // Intersect allows / check contradictions
+        // Phase 2: intersect allows (uses new.denied, not self.denied)
         if let Some(allow) = &child.allow {
-            let requested: Vec<String> = allow
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            // Warn if any requested tool is denied by an ancestor
-            for tool in &requested {
-                if self.denied.contains(tool) {
-                    warnings.push(format!(
-                        "tool '{tool}' is allowed here but denied by an ancestor <tool> directive"
-                    ));
-                }
-            }
-
-            // Warn if any requested tool is outside the ancestor's allow-list
-            if let Some(parent_allowed) = &self.allowed {
-                for tool in &requested {
-                    if !parent_allowed.contains(tool) && !self.denied.contains(tool) {
-                        warnings.push(format!(
-                            "tool '{tool}' is allowed here but not in ancestor's allow-list"
-                        ));
-                    }
-                }
-            }
-
-            // Compute effective allow: intersection with parent, excluding denied
-            let effective = if let Some(parent_allowed) = &self.allowed {
-                requested.iter()
-                    .filter(|t| parent_allowed.contains(t) && !self.denied.contains(t))
-                    .cloned()
-                    .collect()
-            } else {
-                requested.into_iter()
-                    .filter(|t| !self.denied.contains(t))
-                    .collect()
-            };
-            new.allowed = Some(effective);
+            warnings.extend(new.apply_allow(allow, self));
         }
 
-        // Handle name shorthand (equivalent to allow="<name>")
+        // Phase 3: name shorthand — runs if allow is absent (deny may be present)
         if let Some(name) = &child.name {
-            if child.allow.is_none() && child.deny.is_none() {
-                if self.denied.contains(name) {
-                    warnings.push(format!(
-                        "tool '{name}' is requested but denied by an ancestor <tool> directive"
-                    ));
-                }
-                if let Some(parent_allowed) = &self.allowed {
-                    if !parent_allowed.contains(name) {
-                        warnings.push(format!(
-                            "tool '{name}' is requested but not in ancestor's allow-list"
-                        ));
-                    }
-                }
-
-                // Narrow constraints: name acts as singleton allow-list
-                if !self.denied.contains(name) {
-                    if let Some(parent_allowed) = &self.allowed {
-                        if parent_allowed.contains(name) {
-                            new.allowed = Some(vec![name.clone()]);
-                        } else {
-                            new.allowed = Some(vec![]);
-                        }
-                    } else {
-                        new.allowed = Some(vec![name.clone()]);
-                    }
-                } else {
-                    new.allowed = Some(vec![]);
-                }
+            if child.allow.is_none() {
+                warnings.extend(new.apply_name(name, self));
             }
         }
 
-        // Warn if name is set alongside allow (redundant)
+        // Phase 4: redundancy warnings
         if child.name.is_some() && child.allow.is_some() {
             warnings.push(
                 "<tool> 'name' is redundant when 'allow' is also set".to_string()
@@ -550,5 +574,98 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert_eq!(after_allow.allowed.as_ref().unwrap(), &vec!["grep"],
             "deny should prevent bash from entering effective: {:?}", after_allow.allowed);
+    }
+
+    // ── Iteration 1 bug fixes ──
+
+    #[test]
+    fn test_same_node_deny_and_allow_filters_correctly() {
+        // Bug fix: allow block must use new.denied (after deny runs), not self.denied
+        // This tests programmatic AST — parser rejects allow+deny on same node,
+        // but apply() must be correct as a defence-in-depth invariant.
+        let tool = ToolDirective { name: None, allow: Some("bash,grep".into()), deny: Some("bash".into()) };
+        let root = ToolConstraints::default();
+        let (after, _) = root.apply(&tool);
+        assert!(!after.allowed.as_ref().unwrap().contains(&"bash".to_string()),
+            "bash should be excluded by same-node deny: {:?}", after.allowed);
+        assert_eq!(after.allowed.as_ref().unwrap(), &vec!["grep"]);
+    }
+
+    #[test]
+    fn test_name_plus_deny_narrows_and_denies() {
+        // Bug fix: name+deny should not skip name narrowing
+        // <tool name="grep" deny="bash"> should narrow to ["grep"] and deny bash
+        let tool = ToolDirective { name: Some("grep".into()), allow: None, deny: Some("bash".into()) };
+        let root = ToolConstraints::default();
+        let (after, _) = root.apply(&tool);
+        assert_eq!(after.allowed.as_ref().unwrap(), &vec!["grep"],
+            "name should narrow even when deny is present: {:?}", after.allowed);
+        assert!(after.denied.contains(&"bash".to_string()));
+    }
+
+    #[test]
+    fn test_name_deny_self_contradictory() {
+        // <tool name="bash" deny="bash"> — name requests bash but deny blocks it
+        let tool = ToolDirective { name: Some("bash".into()), allow: None, deny: Some("bash".into()) };
+        let root = ToolConstraints::default();
+        let (after, warnings) = root.apply(&tool);
+        assert!(after.allowed.as_ref().unwrap().is_empty(),
+            "self-contradictory name+deny should produce empty effective: {:?}", after.allowed);
+        assert!(warnings.iter().any(|w| w.contains("bash") && w.contains("denied")),
+            "should warn about bash being denied: {:?}", warnings);
+    }
+
+    // ── Iteration 1 edge case tests ──
+
+    #[test]
+    fn test_empty_parent_allow_intersect_child() {
+        // Empty parent allow ∩ child allow = empty (security boundary)
+        let tool_empty = ToolDirective { name: None, allow: Some("".into()), deny: None };
+        let tool_child = ToolDirective { name: None, allow: Some("bash".into()), deny: None };
+        let root = ToolConstraints::default();
+        let (after_empty, _) = root.apply(&tool_empty);
+        assert!(after_empty.allowed.as_ref().unwrap().is_empty());
+        let (after_child, warnings) = after_empty.apply(&tool_child);
+        assert!(after_child.allowed.as_ref().unwrap().is_empty(),
+            "empty ∩ anything should be empty: {:?}", after_child.allowed);
+        assert_eq!(warnings.len(), 1, "bash should warn as outside allow-list: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_allow_intersection_state_not_just_warnings() {
+        // Verify effective state for allow∩allow (no deny involved)
+        let outer = ToolDirective { name: None, allow: Some("bash,view".into()), deny: None };
+        let inner = ToolDirective { name: None, allow: Some("bash,grep".into()), deny: None };
+        let root = ToolConstraints::default();
+        let (after_outer, _) = root.apply(&outer);
+        let (after_inner, warnings) = after_outer.apply(&inner);
+        assert_eq!(after_inner.allowed.as_ref().unwrap(), &vec!["bash"],
+            "intersection should be bash only: {:?}", after_inner.allowed);
+        assert_eq!(warnings.len(), 1, "grep should warn: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_stacked_deny_union_three_levels() {
+        // deny="bash" → deny="grep" → allow="bash,grep,view" → effective = ["view"]
+        let d1 = ToolDirective { name: None, allow: None, deny: Some("bash".into()) };
+        let d2 = ToolDirective { name: None, allow: None, deny: Some("grep".into()) };
+        let a3 = ToolDirective { name: None, allow: Some("bash,grep,view".into()), deny: None };
+        let root = ToolConstraints::default();
+        let (s1, _) = root.apply(&d1);
+        let (s2, _) = s1.apply(&d2);
+        let (s3, warnings) = s2.apply(&a3);
+        assert_eq!(s3.allowed.as_ref().unwrap(), &vec!["view"],
+            "only view should survive stacked denies: {:?}", s3.allowed);
+        assert_eq!(warnings.len(), 2, "bash and grep should warn: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_whitespace_comma_edge_cases() {
+        // "bash, , grep" should parse as ["bash", "grep"], filtering empty entries
+        let tool = ToolDirective { name: None, allow: Some("bash, , grep".into()), deny: None };
+        let root = ToolConstraints::default();
+        let (after, _) = root.apply(&tool);
+        assert_eq!(after.allowed.as_ref().unwrap(), &vec!["bash", "grep"],
+            "empty entries should be filtered: {:?}", after.allowed);
     }
 }
