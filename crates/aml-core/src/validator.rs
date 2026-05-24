@@ -29,12 +29,16 @@ impl std::fmt::Display for ValidationError {
     }
 }
 
-/// Split a comma-separated attribute into non-empty trimmed tool names.
+/// Split a comma-separated attribute into non-empty, trimmed, deduplicated tool names.
 fn parse_tool_list(value: &str) -> Vec<String> {
-    value.split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+    let mut seen = Vec::new();
+    for raw in value.split(',') {
+        let s = raw.trim().to_string();
+        if !s.is_empty() && !seen.contains(&s) {
+            seen.push(s);
+        }
+    }
+    seen
 }
 
 /// Active tool constraints inherited from ancestor `<tool>` directives.
@@ -681,6 +685,28 @@ mod tests {
     }
 
     // ── Iteration 2 tests ──
+
+    #[test]
+    fn test_parse_tool_list_deduplicates() {
+        let result = parse_tool_list("bash,grep,bash,view,grep");
+        assert_eq!(result, vec!["bash", "grep", "view"],
+            "parse_tool_list should deduplicate: {:?}", result);
+    }
+
+    #[test]
+    fn test_duplicate_allow_no_duplicate_warnings() {
+        // deny="bash" → allow="bash,bash" should produce exactly 1 warning, not 2
+        let parent = ToolConstraints {
+            allowed: None,
+            denied: vec!["bash".into()],
+        };
+        let tool = ToolDirective { name: None, allow: Some("bash,bash".into()), deny: None };
+        let (result, warnings) = parent.apply(&tool);
+        assert_eq!(warnings.len(), 1,
+            "duplicate allow should not produce duplicate warnings: {:?}", warnings);
+        assert!(result.allowed.as_ref().unwrap().is_empty(),
+            "bash is denied, effective should be empty");
+    }
 
     #[test]
     fn test_four_level_nesting() {

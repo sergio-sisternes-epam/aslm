@@ -34,4 +34,3 @@ htmlcov/
 .coverage
 node_modules/
 dist/
-target/
