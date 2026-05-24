@@ -691,6 +691,13 @@ fn build_directive_kind(
                 });
             }
 
+            if attrs.contains_key("on-failure") {
+                return Err(ParseError {
+                    message: "<tool> does not support 'on-failure' (it is a scope directive, not an execution unit)".to_string(),
+                    span: Span::new(offset, offset + 20),
+                });
+            }
+
             Ok(DirectiveKind::Tool(ToolDirective { name, allow, deny }))
         }
         TagName::Session => {

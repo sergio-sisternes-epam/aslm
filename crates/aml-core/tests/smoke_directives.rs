@@ -539,8 +539,13 @@ fn smoke_tool_name_shorthand_nested() {
 </tool>"#;
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
-    assert!(errors.is_empty(), "name shorthand nesting should be valid: {:?}", errors);
+    // With correct constraint narrowing, name="bash" sets allowed=["bash"],
+    // so inner name="grep" correctly warns that grep is outside the allow-list
+    let warnings: Vec<_> = errors.iter().filter(|e| e.severity == Severity::Warning).collect();
+    assert_eq!(warnings.len(), 1, "expected warning about grep not in bash scope: {:?}", errors);
+    assert!(warnings[0].message.contains("grep"));
 
+    // Execution still succeeds (warnings are advisory)
     let result = ctx.execute(&doc).expect("execution should succeed");
     assert!(result.contains("[tested: single tool each level]"));
 }
