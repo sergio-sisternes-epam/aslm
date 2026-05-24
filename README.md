@@ -1,10 +1,10 @@
-# SML — Skill Markup Language
+# AML — Agent Markup Language
 
 A lightweight, XML-inspired markup language that enables agents to declaratively invoke modular, scoped, and nestable skills directly inside prompts.
 
 ## Overview
 
-SML provides two independent layers:
+AML provides two independent layers:
 
 - **Runtime Layer**: A high-performance parser and executor implemented in Rust + PyO3
 - **Distribution & Knowledge Layer**: An APM package for agent tooling ecosystems
@@ -12,11 +12,11 @@ SML provides two independent layers:
 ## Quick Start
 
 ```bash
-pip install sml
+pip install aml
 ```
 
 ```python
-from sml import parse, execute, SmlRegistry
+from aml import parse, execute, AmlRegistry
 
 doc = parse("""
 <skill interface="code-review" language="python">
@@ -25,7 +25,7 @@ doc = parse("""
 </skill>
 """)
 
-registry = SmlRegistry()
+registry = AmlRegistry()
 registry.register_interface("code-review", "Review code for issues")
 registry.register_implementation(
     "python-review", "code-review",
@@ -35,7 +35,7 @@ registry.register_implementation(
 result = execute(doc, registry)
 ```
 
-## SML Syntax
+## AML Syntax
 
 ```xml
 <!-- Invoke a skill -->
@@ -67,14 +67,14 @@ result = execute(doc, registry)
 
 - [Language Specification](docs/spec/)
 - [Conformance Suite](tests/conformance/)
-- [API Reference (Rust)](crates/sml-core/)
-- [API Reference (Python)](crates/sml-python/)
+- [API Reference (Rust)](crates/aml-core/)
+- [API Reference (Python)](crates/aml-python/)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────┐
-│  Agent Prompt (contains SML tags)        │
+│  Agent Prompt (contains AML tags)        │
 └─────────────┬───────────────────────────┘
               │ parse()
               ▼
@@ -89,7 +89,7 @@ result = execute(doc, registry)
               │ result injection
               ▼
 ┌─────────────────────────────────────────┐
-│  Output (SML tags replaced by results)   │
+│  Output (AML tags replaced by results)   │
 └─────────────────────────────────────────┘
 ```
 

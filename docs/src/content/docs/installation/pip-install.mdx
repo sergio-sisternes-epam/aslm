@@ -1,12 +1,12 @@
 ---
 title: pip install
-description: Install SML from PyPI.
+description: Install AML from PyPI.
 ---
 
 ## Quick Install
 
 ```bash
-pip install sml
+pip install aml
 ```
 
 ## Requirements
@@ -26,16 +26,16 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 pip install maturin
 
 # Clone and build
-git clone https://github.com/sergio-sisternes-epam/aslm.git
-cd aslm
+git clone https://github.com/sergio-sisternes-epam/aml.git
+cd aml
 maturin develop --release
 ```
 
 ## Verify
 
 ```python
-from sml import parse
+from aml import parse
 doc = parse('<skill interface="test">hello</skill>')
 assert doc.node_count == 1
-print("SML installed successfully!")
+print("AML installed successfully!")
 ```

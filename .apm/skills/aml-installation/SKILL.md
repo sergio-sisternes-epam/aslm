@@ -1,16 +1,16 @@
 ---
-name: sml-installation
-description: Install the SML runtime (Rust parser with Python bindings) so that agents can parse and execute SML tags programmatically.
+name: aml-installation
+description: Install the AML runtime (Rust parser with Python bindings) so that agents can parse and execute AML tags programmatically.
 ---
 
-# SML Installation Guide
+# AML Installation Guide
 
-Use this guide when you need to install the SML runtime for programmatic parsing and execution.
+Use this guide when you need to install the AML runtime for programmatic parsing and execution.
 
 ## Quick Install (Python)
 
 ```bash
-pip install sml
+pip install aml
 ```
 
 This installs pre-built wheels with the Rust parser compiled for your platform.
@@ -23,23 +23,23 @@ Requirements:
 - maturin (`pip install maturin`)
 
 ```bash
-git clone https://github.com/sergio-sisternes-epam/aslm.git
-cd aslm
+git clone https://github.com/sergio-sisternes-epam/aml.git
+cd aml
 maturin develop --release
 ```
 
 ## Verify Installation
 
 ```python
-from sml import parse, execute, SmlRegistry
+from aml import parse, execute, AmlRegistry
 
-# Parse SML from a prompt
+# Parse AML from a prompt
 doc = parse('<skill interface="testing" language="python">Run tests</skill>')
 print(doc.node_count)       # 1
 print(doc.invocations())    # ['testing']
 
 # Set up a registry
-registry = SmlRegistry()
+registry = AmlRegistry()
 registry.register_interface("testing", "Run automated tests")
 registry.register_implementation(
     "pytest-impl", "testing",
@@ -67,11 +67,11 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sml-core = "0.1"
+aml-core = "0.1"
 ```
 
 ```rust
-use sml_core::{parse, SkillRegistry, ExecutionContext};
+use aml_core::{parse, SkillRegistry, ExecutionContext};
 
 let doc = parse(r#"<skill interface="testing">content</skill>"#).unwrap();
 let registry = SkillRegistry::new();

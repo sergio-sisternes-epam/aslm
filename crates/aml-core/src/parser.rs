@@ -21,7 +21,7 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-/// Parse an SML document from a string.
+/// Parse an AML document from a string.
 ///
 /// The parser is embedded-tolerant: it extracts `<skill>` and `<param>` tags
 /// from arbitrary text, treating everything else as literal `Text` nodes.

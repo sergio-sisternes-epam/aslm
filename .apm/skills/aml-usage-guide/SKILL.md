@@ -1,15 +1,15 @@
 ---
-name: sml-usage-guide
-description: Teach an agent how to emit valid SML (Skill Markup Language) tags for declarative skill invocation inside prompts, including interface definitions, implementation bindings, scoping, nesting, params, and execution policies.
+name: aml-usage-guide
+description: Teach an agent how to emit valid AML (Agent Markup Language) tags for declarative skill invocation inside prompts, including interface definitions, implementation bindings, scoping, nesting, params, and execution policies.
 ---
 
-# SML Usage Guide
+# AML Usage Guide
 
-Use this guide when you need to invoke skills declaratively inside a prompt using SML syntax.
+Use this guide when you need to invoke skills declaratively inside a prompt using AML syntax.
 
 ## Core Syntax
 
-SML uses XML-like `<skill>` tags embedded in natural text:
+AML uses XML-like `<skill>` tags embedded in natural text:
 
 ```xml
 <skill interface="unit-testing" language="python">
@@ -123,12 +123,12 @@ Here `fetch-url` runs first, its output becomes the scope for `summarise`.
 
 1. **Never nest definitions inside invocations** — definitions are top-level only
 2. **One resolution target per invocation** — use `interface` OR `impl` OR `name`
-3. **Results are escaped** — skill output is never re-parsed as SML
+3. **Results are escaped** — skill output is never re-parsed as AML
 4. **Content is the scope** — everything between open/close tags is what the skill sees
 5. **Definitions don't execute** — they only register capabilities
 
-## When NOT to use SML
+## When NOT to use AML
 
 - Simple function calls with no scoping → use tool_call syntax instead
 - One-shot queries with no composition → plain text is fine
-- Highly dynamic dispatch → use agentic reasoning, then emit SML for the chosen skill
+- Highly dynamic dispatch → use agentic reasoning, then emit AML for the chosen skill

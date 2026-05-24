@@ -1,8 +1,8 @@
-# SML Attribute Reference
+# AML Attribute Reference
 
 ## Overview
 
-Every attribute in SML has a defined type, allowed values, and validity scope.
+Every attribute in AML has a defined type, allowed values, and validity scope.
 This document is the canonical reference for attribute semantics.
 
 ## Attribute Table
@@ -95,7 +95,7 @@ Maximum timeout: `1h`. Values exceeding this are clamped with a warning.
 
 ## Forward Compatibility
 
-Unknown attributes are treated as **warnings**, not errors. This allows SML
+Unknown attributes are treated as **warnings**, not errors. This allows AML
 documents written for newer versions to be parsed by older runtimes with
 graceful degradation. The unknown attributes are:
 - Preserved in the AST (for round-tripping).

@@ -1,15 +1,15 @@
 [package]
-name = "sml-python"
+name = "aml-python"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Python bindings for SML parser and executor"
+description = "Python bindings for AML parser and executor"
 
 [lib]
-name = "sml"
+name = "aml"
 crate-type = ["cdylib"]
 
 [dependencies]
-sml-core = { path = "../sml-core" }
+aml-core = { path = "../aml-core" }
 pyo3 = { version = "0.22", features = ["extension-module"] }

@@ -1,4 +1,4 @@
-# Contributing to SML
+# Contributing to AML
 
 Thank you for your interest in contributing! This document explains how to get involved.
 
@@ -10,11 +10,11 @@ Please be respectful and constructive in all interactions. See [CODE_OF_CONDUCT.
 
 ### Reporting Bugs
 
-Open a [bug report](https://github.com/sergio-sisternes-epam/aslm/issues/new?template=bug_report.md) with a clear description and a minimal reproduction case.
+Open a [bug report](https://github.com/sergio-sisternes-epam/aml/issues/new?template=bug_report.md) with a clear description and a minimal reproduction case.
 
 ### Suggesting Features
 
-Open a [feature request](https://github.com/sergio-sisternes-epam/aslm/issues/new?template=feature_request.md) describing the problem you want to solve and your proposed solution.
+Open a [feature request](https://github.com/sergio-sisternes-epam/aml/issues/new?template=feature_request.md) describing the problem you want to solve and your proposed solution.
 
 ### Submitting Changes
 
@@ -43,7 +43,7 @@ cargo build
 
 # Build the Python extension (development mode)
 pip install maturin
-maturin develop --manifest-path crates/sml-python/Cargo.toml
+maturin develop --manifest-path crates/aml-python/Cargo.toml
 ```
 
 ### Running Tests

@@ -6,16 +6,16 @@ Inner skills execute first, their results become the scope for outer skills.
 
 
 def main():
-    from sml import SmlRegistry, execute, parse
+    from aml import AmlRegistry, execute, parse
 
     # Set up registry
-    registry = SmlRegistry()
+    registry = AmlRegistry()
     registry.register_interface("fetch", "Fetch content from a URL")
     registry.register_interface("summarise", "Summarise text content")
     registry.register_implementation("http-fetch", "fetch")
     registry.register_implementation("gpt-summarise", "summarise")
 
-    # Nested SML: fetch runs first, then summarise operates on the result
+    # Nested AML: fetch runs first, then summarise operates on the result
     prompt = """
 <skill interface="summarise">
   <skill interface="fetch">

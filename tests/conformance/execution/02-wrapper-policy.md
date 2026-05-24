@@ -2,7 +2,7 @@
 
 ## Input
 
-```sml
+```aml
 <skill interface="sandbox" policy="wrapper">
   <skill interface="file-writer">
     Write secret.txt with contents "password123"

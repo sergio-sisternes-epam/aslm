@@ -1,10 +1,10 @@
 [package]
-name = "sml-core"
+name = "aml-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "SML (Skill Markup Language) parser and executor"
+description = "AML (Agent Markup Language) parser and executor"
 
 [dependencies]
 

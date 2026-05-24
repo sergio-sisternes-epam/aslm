@@ -1,5 +1,5 @@
-name: sml
+name: aml
 version: 0.1.0
-description: "Skill Markup Language — declarative skill invocation for agent prompts"
+description: "Agent Markup Language — declarative skill invocation for agent prompts"
 license: MIT
 target: [copilot, claude, cursor, codex, opencode]

@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-SML needs a syntax for structured skill invocation within agent prompts. Options considered:
+AML needs a syntax for structured skill invocation within agent prompts. Options considered:
 - JSON blocks
 - YAML blocks
 - Custom DSL
@@ -22,5 +22,5 @@ Use XML-like `<skill>` tags with attributes and content.
 
 ## Consequences
 - Must handle entity escaping (`&lt;`, `&amp;`, etc.)
-- Parser must be tolerant of non-SML `<` characters in prompt text
+- Parser must be tolerant of non-AML `<` characters in prompt text
 - Cannot use self-closing tags for skills with content

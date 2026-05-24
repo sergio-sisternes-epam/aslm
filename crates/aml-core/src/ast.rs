@@ -132,7 +132,7 @@ pub struct Param {
     pub span: Span,
 }
 
-/// A node in the SML AST.
+/// A node in the AML AST.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
     /// A skill tag (invocation or definition).
@@ -191,7 +191,7 @@ impl Node {
     }
 }
 
-/// The root of an SML document.
+/// The root of an AML document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     pub nodes: Vec<Node>,

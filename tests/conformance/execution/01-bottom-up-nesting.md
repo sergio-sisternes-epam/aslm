@@ -2,7 +2,7 @@
 
 ## Input
 
-```sml
+```aml
 <skill interface="summarise">
   <skill interface="uppercase">hello world</skill>
   needs summarising.

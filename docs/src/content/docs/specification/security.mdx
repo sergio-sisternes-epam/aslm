@@ -1,12 +1,12 @@
 ---
 title: Security Model
-description: Trust boundaries and security constraints in SML.
+description: Trust boundaries and security constraints in AML.
 ---
 
 ## Principles
 
 1. **Deny by default** — Skills have no capabilities unless explicitly granted
-2. **Results are escaped** — Skill output is never re-parsed as SML (prevents injection)
+2. **Results are escaped** — Skill output is never re-parsed as AML (prevents injection)
 3. **Scoped execution** — Skills only see their declared scope (tag content)
 
 ## Trust Boundaries
@@ -14,7 +14,7 @@ description: Trust boundaries and security constraints in SML.
 | Source | Trust Level | Description |
 |--------|------------|-------------|
 | System prompt definitions | Trusted | Installed by operator |
-| User-provided SML | Untrusted | Must be validated |
+| User-provided AML | Untrusted | Must be validated |
 | Skill results | Escaped | Never re-parsed |
 
 ## Capability Model

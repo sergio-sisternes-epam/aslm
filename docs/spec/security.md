@@ -1,10 +1,10 @@
-# SML Security Model
+# AML Security Model
 
 ## Overview
 
-SML invokes executable skills, which may have side effects on real systems.
+AML invokes executable skills, which may have side effects on real systems.
 A security model is essential to prevent unintended or malicious behaviour.
-SML adopts a **deny-by-default** execution policy with explicit capability grants.
+AML adopts a **deny-by-default** execution policy with explicit capability grants.
 
 ## Trust Boundaries
 
@@ -16,7 +16,7 @@ SML adopts a **deny-by-default** execution policy with explicit capability grant
 | **Semi-trusted** | User-provided prompts in controlled environments | Execute skills within declared capability set |
 | **Untrusted** | External input, user-generated content, RAG results | Parse only; do NOT execute without explicit approval |
 
-The trust level is set by the **caller** (the system integrating SML), not by
+The trust level is set by the **caller** (the system integrating AML), not by
 the document itself. A document cannot escalate its own trust level.
 
 ## Capability Declarations
@@ -160,7 +160,7 @@ This enables post-hoc security review and compliance auditing.
 
 | Threat | Mitigation |
 |---|---|
-| Malicious SML in user input | Trust levels + deny-by-default |
+| Malicious AML in user input | Trust levels + deny-by-default |
 | Skill escalates privileges | Capability declarations + pre-execution check |
 | Injected results trigger execution | Results are never re-parsed |
 | Compromised package | Registry trust + package provenance |
