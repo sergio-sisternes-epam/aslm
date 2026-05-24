@@ -1,0 +1,11 @@
+# Global owner — review required on all changes
+* @sergio-sisternes-epam
+
+# Rust core
+/crates/ @sergio-sisternes-epam
+
+# Documentation
+/docs/ @sergio-sisternes-epam
+
+# CI / workflows
+/.github/workflows/ @sergio-sisternes-epam
