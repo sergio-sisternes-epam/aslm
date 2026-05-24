@@ -61,6 +61,10 @@ pub enum NodeKind {
         reads: Option<IoDecl>,
         /// File-write declarations (glob patterns).
         writes: Option<IoDecl>,
+        /// Skill references (e.g. DDE enforcement).
+        skill_refs: Vec<SkillRef>,
+        /// Tool constraints as part of the interface contract.
+        tool_constraints: Vec<ToolConstraint>,
     },
     /// An implementation definition — registered but not executed.
     ImplementationDefinition {
@@ -69,6 +73,8 @@ pub enum NodeKind {
         language: Option<String>,
         framework: Option<String>,
         description: Option<String>,
+        /// DDE node declarations.
+        nodes: Vec<NodeDecl>,
     },
 }
 
@@ -245,6 +251,67 @@ pub struct ReturnDecl {
 pub struct IoDecl {
     /// Comma-separated glob patterns parsed into individual entries.
     pub patterns: Vec<String>,
+    pub span: Span,
+}
+
+/// A skill reference within an interface definition (e.g. `<skill ref="dde" role="enforcement" />`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillRef {
+    /// The referenced skill name.
+    pub ref_name: String,
+    /// Optional role descriptor (e.g. "enforcement").
+    pub role: Option<String>,
+    pub span: Span,
+}
+
+/// A tool constraint within an interface definition contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolConstraint {
+    /// Allowed tools (parsed from comma-separated attribute).
+    pub allow: Vec<String>,
+    /// Denied tools (parsed from comma-separated attribute).
+    pub deny: Vec<String>,
+    pub span: Span,
+}
+
+/// DDE node type — deterministic tool invocation or LLM reasoning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeType {
+    Tool,
+    Prompt,
+}
+
+impl NodeType {
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "tool" => Some(Self::Tool),
+            "prompt" => Some(Self::Prompt),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for NodeType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tool => write!(f, "tool"),
+            Self::Prompt => write!(f, "prompt"),
+        }
+    }
+}
+
+/// A DDE node declaration within an implementation definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeDecl {
+    /// Node name (must match the mermaid flowchart label).
+    pub name: String,
+    /// Node type: deterministic tool invocation or LLM reasoning.
+    pub node_type: NodeType,
+    /// Which specific tool this node invokes (from `<tool use="...">`).
+    pub tool_use: Option<String>,
+    /// Human-readable description (text content).
+    pub description: Option<String>,
     pub span: Span,
 }
 

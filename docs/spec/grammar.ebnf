@@ -46,7 +46,7 @@ InterfaceDef   ::= '<skill' 'define' '=' '"interface"' 'name' '=' QuotedString I
 InterfaceDefAttrs ::= DescriptionAttr?
 DescriptionAttr   ::= 'description' '=' QuotedString
 
-InterfaceBody  ::= (Text | ParamDecl | ReturnsDecl | ReadsDecl | WritesDecl)*
+InterfaceBody  ::= (Text | ParamDecl | ReturnsDecl | ReadsDecl | WritesDecl | SkillRefDecl | ToolConstraintDecl)*
 
 # --- PARAMETER DECLARATIONS (inside interface definitions) ---
 # Declare a named, typed input parameter with optional default and description.
@@ -70,18 +70,40 @@ ReturnsDeclAttrs ::= 'name' '=' QuotedString
 ReadsDecl      ::= '<reads>' Text '</reads>'
 WritesDecl     ::= '<writes>' Text '</writes>'
 
+# --- SKILL REFERENCE (inside interface definitions) ---
+# References another skill (e.g. for DDE enforcement).
+SkillRefDecl   ::= '<skill' 'ref' '=' QuotedString SkillRefAttrs? '/>'
+SkillRefAttrs  ::= 'role' '=' QuotedString
+
+# --- TOOL CONSTRAINT (inside interface definitions) ---
+# Declares allowed/denied tools as part of the interface contract.
+# Self-closing only; must have allow or deny (not both).
+ToolConstraintDecl ::= '<tool' (AllowAttr | DenyAttr) '/>'
+
 # --- IMPLEMENTATION DEFINITION ---
 # define="implementation" is required. name and implements are required.
 # NOT executable. Registered into SkillRegistry during definition extraction phase.
+# Body may contain DDE node declarations and free-form text (e.g. mermaid flowcharts).
 ImplementationDef ::= '<skill' 'define' '=' '"implementation"'
                         'name' '=' QuotedString
                         'implements' '=' QuotedString
                         ImplDefAttrs?
                       '>'
-                        Text
+                        ImplementationBody
                       '</skill>'
 
-ImplDefAttrs   ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
+ImplDefAttrs       ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
+
+ImplementationBody ::= (Text | NodeDecl)*
+
+# --- NODE DECLARATIONS (inside implementation definitions) ---
+# Each node describes one step in a DDE flowchart.
+# name must match the mermaid node label.
+# type is "tool" (deterministic) or "prompt" (LLM reasoning).
+NodeDecl       ::= '<node' NodeDeclAttrs '>' NodeBody '</node>'
+NodeDeclAttrs  ::= 'name' '=' QuotedString 'type' '=' QuotedString   # "tool" or "prompt"
+NodeBody       ::= (Text | ToolUseDecl)*
+ToolUseDecl    ::= '<tool' 'use' '=' QuotedString '/>'               # which tool a node invokes
 
 # --- DIRECTIVE NODES ---
 # Directives instruct the runtime about execution environment.

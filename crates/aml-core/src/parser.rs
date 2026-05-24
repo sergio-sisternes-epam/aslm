@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::ast::{
     AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, IoDecl, Node,
-    NodeKind, Param, ParamDecl, ReturnDecl, SessionDirective, Span, ToolDirective,
+    NodeDecl, NodeKind, NodeType, Param, ParamDecl, ReturnDecl, SessionDirective, SkillRef, Span,
+    ToolConstraint, ToolDirective,
 };
 
 /// Recognised tag names in AML.
@@ -405,21 +406,48 @@ fn parse_skill_tag(input: &str, offset: usize) -> Result<(Node, usize), ParseErr
 
     // For interface definitions, parse the body for typed declarations
     if matches!(kind, NodeKind::InterfaceDefinition { .. }) {
-        let (decl_params, decl_returns, decl_reads, decl_writes, children) =
-            parse_interface_body(content, offset + content_start)?;
+        let body = parse_interface_body(content, offset + content_start)?;
 
         if let NodeKind::InterfaceDefinition {
             ref mut params,
             ref mut returns,
             ref mut reads,
             ref mut writes,
+            ref mut skill_refs,
+            ref mut tool_constraints,
             ..
         } = kind
         {
-            *params = decl_params;
-            *returns = decl_returns;
-            *reads = decl_reads;
-            *writes = decl_writes;
+            *params = body.params;
+            *returns = body.returns;
+            *reads = body.reads;
+            *writes = body.writes;
+            *skill_refs = body.skill_refs;
+            *tool_constraints = body.tool_constraints;
+        }
+
+        let total_consumed = content_start + content_end + close_tag_end;
+        return Ok((
+            Node::Skill {
+                kind,
+                params: Vec::new(),
+                children: body.children,
+                span: Span::new(offset, offset + total_consumed),
+            },
+            total_consumed,
+        ));
+    }
+
+    // For implementation definitions, parse the body for node declarations
+    if matches!(kind, NodeKind::ImplementationDefinition { .. }) {
+        let (decl_nodes, children) =
+            parse_implementation_body(content, offset + content_start)?;
+
+        if let NodeKind::ImplementationDefinition {
+            ref mut nodes, ..
+        } = kind
+        {
+            *nodes = decl_nodes;
         }
 
         let total_consumed = content_start + content_end + close_tag_end;
@@ -604,26 +632,28 @@ fn find_next_interface_tag(s: &str) -> Option<usize> {
     None
 }
 
+/// Parsed result of an interface definition body.
+struct ParsedInterfaceBody {
+    params: Vec<ParamDecl>,
+    returns: Vec<ReturnDecl>,
+    reads: Option<IoDecl>,
+    writes: Option<IoDecl>,
+    skill_refs: Vec<SkillRef>,
+    tool_constraints: Vec<ToolConstraint>,
+    children: Vec<Node>,
+}
+
 /// Parse the body of an interface definition, extracting typed declarations.
-/// Returns (params, returns, reads, writes, remaining children as text nodes).
-#[allow(clippy::type_complexity)]
 fn parse_interface_body(
     input: &str,
     base_offset: usize,
-) -> Result<
-    (
-        Vec<ParamDecl>,
-        Vec<ReturnDecl>,
-        Option<IoDecl>,
-        Option<IoDecl>,
-        Vec<Node>,
-    ),
-    ParseError,
-> {
+) -> Result<ParsedInterfaceBody, ParseError> {
     let mut params = Vec::new();
     let mut returns = Vec::new();
     let mut reads = None;
     let mut writes = None;
+    let mut skill_refs = Vec::new();
+    let mut tool_constraints = Vec::new();
     let mut children = Vec::new();
     let mut pos = 0;
 
@@ -678,16 +708,41 @@ fn parse_interface_body(
             continue;
         }
 
-        // Parse nested skill/directive tags (so the validator can reject them)
+        // Parse nested skill/directive tags — check for skill refs and tool constraints first
         if let Some(tag) = detect_open_tag(&input[pos..]) {
             match tag {
                 TagName::Skill => {
+                    // Check if this is a <skill ref="..."> (skill reference)
+                    if let Some((sr, consumed)) =
+                        try_parse_skill_ref(&input[pos..], base_offset + pos)?
+                    {
+                        skill_refs.push(sr);
+                        pos += consumed;
+                        continue;
+                    }
+                    // Otherwise parse as regular child (for validator rejection)
                     let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
                     children.push(node);
                     pos += consumed;
                     continue;
                 }
-                TagName::Tool | TagName::Session | TagName::Agent => {
+                TagName::Tool => {
+                    // Check if this is a self-closing <tool allow="..."/> or <tool deny="..."/>
+                    if let Some((tc, consumed)) =
+                        try_parse_tool_constraint(&input[pos..], base_offset + pos)?
+                    {
+                        tool_constraints.push(tc);
+                        pos += consumed;
+                        continue;
+                    }
+                    // Otherwise parse as regular directive child (for validator rejection)
+                    let (node, consumed) =
+                        parse_directive_tag(tag, &input[pos..], base_offset + pos)?;
+                    children.push(node);
+                    pos += consumed;
+                    continue;
+                }
+                TagName::Session | TagName::Agent => {
                     let (node, consumed) =
                         parse_directive_tag(tag, &input[pos..], base_offset + pos)?;
                     children.push(node);
@@ -713,7 +768,401 @@ fn parse_interface_body(
     }
 
     merge_text_nodes(&mut children);
-    Ok((params, returns, reads, writes, children))
+    Ok(ParsedInterfaceBody {
+        params,
+        returns,
+        reads,
+        writes,
+        skill_refs,
+        tool_constraints,
+        children,
+    })
+}
+
+/// Try to parse a `<skill ref="..." role="..." />` inside an interface body.
+/// Returns `None` if the `<skill>` tag does not have a `ref` attribute.
+fn try_parse_skill_ref(
+    input: &str,
+    base_offset: usize,
+) -> Result<Option<(SkillRef, usize)>, ParseError> {
+    let tag_end = find_tag_end(input).ok_or_else(|| ParseError {
+        message: "unclosed <skill> tag".to_string(),
+        span: Span::new(base_offset, base_offset + input.len().min(50)),
+    })?;
+
+    let is_self_closing = input[..tag_end].ends_with('/');
+    let attrs_str = if is_self_closing {
+        &input[6..tag_end - 1] // after "<skill"
+    } else {
+        &input[6..tag_end]
+    };
+
+    let attrs = parse_attributes(attrs_str, base_offset + 6)?;
+
+    // Only treat as SkillRef if `ref` is present and no conflicting attrs
+    let Some(ref_name) = attrs.get("ref").cloned() else {
+        return Ok(None);
+    };
+
+    // Reject if conflicting attributes are present
+    for conflict in &["interface", "impl", "define", "name"] {
+        if attrs.contains_key(*conflict) {
+            return Err(ParseError {
+                message: format!(
+                    "<skill ref=\"{ref_name}\"> must not have '{conflict}' attribute"
+                ),
+                span: Span::new(base_offset, base_offset + tag_end + 1),
+            });
+        }
+    }
+
+    let role = attrs.get("role").cloned();
+
+    if is_self_closing {
+        let consumed = tag_end + 1;
+        return Ok(Some((
+            SkillRef {
+                ref_name,
+                role,
+                span: Span::new(base_offset, base_offset + consumed),
+            },
+            consumed,
+        )));
+    }
+
+    // Non-self-closing: consume to </skill>
+    let content_start = tag_end + 1;
+    let close_tag = "</skill>";
+    let content_end = input[content_start..]
+        .find(close_tag)
+        .ok_or_else(|| ParseError {
+            message: "unclosed <skill ref> tag".to_string(),
+            span: Span::new(base_offset, base_offset + content_start),
+        })?;
+
+    let consumed = content_start + content_end + close_tag.len();
+    Ok(Some((
+        SkillRef {
+            ref_name,
+            role,
+            span: Span::new(base_offset, base_offset + consumed),
+        },
+        consumed,
+    )))
+}
+
+/// Try to parse a `<tool allow="..." />` or `<tool deny="..." />` as an interface contract constraint.
+/// Returns `None` if the tag is not self-closing or has incompatible attributes.
+fn try_parse_tool_constraint(
+    input: &str,
+    base_offset: usize,
+) -> Result<Option<(ToolConstraint, usize)>, ParseError> {
+    let tag_end = find_tag_end(input).ok_or_else(|| ParseError {
+        message: "unclosed <tool> tag".to_string(),
+        span: Span::new(base_offset, base_offset + input.len().min(50)),
+    })?;
+
+    let is_self_closing = input[..tag_end].ends_with('/');
+
+    // Only accept self-closing <tool .../> as interface constraints
+    if !is_self_closing {
+        return Ok(None);
+    }
+
+    let attrs_str = &input[5..tag_end - 1]; // after "<tool"
+    let attrs = parse_attributes(attrs_str, base_offset + 5)?;
+
+    // Must have allow or deny (not name or use)
+    let has_allow = attrs.contains_key("allow");
+    let has_deny = attrs.contains_key("deny");
+    let has_name = attrs.contains_key("name");
+    let has_use = attrs.contains_key("use");
+
+    if !has_allow && !has_deny {
+        return Ok(None);
+    }
+    if has_name || has_use {
+        return Ok(None);
+    }
+
+    let allow = attrs
+        .get("allow")
+        .map(|s| parse_tool_list(s))
+        .unwrap_or_default();
+    let deny = attrs
+        .get("deny")
+        .map(|s| parse_tool_list(s))
+        .unwrap_or_default();
+
+    let consumed = tag_end + 1;
+    Ok(Some((
+        ToolConstraint {
+            allow,
+            deny,
+            span: Span::new(base_offset, base_offset + consumed),
+        },
+        consumed,
+    )))
+}
+
+/// Parse comma-separated, trimmed, non-empty tool names.
+fn parse_tool_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Implementation declaration tag names (context-sensitive — only inside implementation bodies).
+const IMPL_DECL_TAGS: &[&str] = &["node"];
+
+/// Detect an implementation declaration tag at the start of `s`.
+fn detect_impl_decl_tag(s: &str) -> Option<&'static str> {
+    for &tag in IMPL_DECL_TAGS {
+        let prefix = format!("<{tag}");
+        if s.starts_with(&prefix) && is_tag_start_after(&s[prefix.len()..]) {
+            return Some(tag);
+        }
+    }
+    None
+}
+
+/// Detect a close tag for an implementation declaration tag.
+fn detect_impl_close_tag(s: &str) -> Option<&'static str> {
+    for &tag in IMPL_DECL_TAGS {
+        let close = format!("</{tag}>");
+        if s.starts_with(&close) {
+            return Some(tag);
+        }
+    }
+    None
+}
+
+/// Find the next implementation declaration tag or AML tag start position.
+fn find_next_impl_tag(s: &str) -> Option<usize> {
+    let mut i = 0;
+    while i < s.len() {
+        if s[i..].starts_with('<') {
+            if detect_impl_decl_tag(&s[i..]).is_some()
+                || detect_impl_close_tag(&s[i..]).is_some()
+                || detect_open_tag(&s[i..]).is_some()
+                || detect_close_tag(&s[i..]).is_some()
+            {
+                return Some(i);
+            }
+            if s[i..].starts_with("<!--") {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Parse the body of an implementation definition, extracting node declarations.
+/// Returns (nodes, remaining children).
+fn parse_implementation_body(
+    input: &str,
+    base_offset: usize,
+) -> Result<(Vec<NodeDecl>, Vec<Node>), ParseError> {
+    let mut nodes = Vec::new();
+    let mut children = Vec::new();
+    let mut pos = 0;
+
+    while pos < input.len() {
+        // Skip comments
+        if input[pos..].starts_with("<!--") {
+            if let Some(end) = input[pos..].find("-->") {
+                pos += end + 3;
+            } else {
+                children.push(Node::Text(input[pos..].to_string()));
+                break;
+            }
+            continue;
+        }
+
+        // Check for <node> declarations
+        if detect_impl_decl_tag(&input[pos..]) == Some("node") {
+            let (decl, consumed) = parse_node_decl(&input[pos..], base_offset + pos)?;
+            nodes.push(decl);
+            pos += consumed;
+            continue;
+        }
+
+        // Skip stray close tags for declaration elements
+        if detect_impl_close_tag(&input[pos..]).is_some() {
+            if let Some(end) = input[pos..].find('>') {
+                pos += end + 1;
+            } else {
+                pos += 1;
+            }
+            continue;
+        }
+
+        // Parse nested skill/directive tags (so the validator can reject them)
+        if let Some(tag) = detect_open_tag(&input[pos..]) {
+            match tag {
+                TagName::Skill => {
+                    let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
+                    children.push(node);
+                    pos += consumed;
+                    continue;
+                }
+                TagName::Tool | TagName::Session | TagName::Agent => {
+                    let (node, consumed) =
+                        parse_directive_tag(tag, &input[pos..], base_offset + pos)?;
+                    children.push(node);
+                    pos += consumed;
+                    continue;
+                }
+                TagName::Param => {
+                    // Stray param inside implementation — treat as text
+                    if let Some(end) = input[pos..].find('>') {
+                        children.push(Node::Text(input[pos..pos + end + 1].to_string()));
+                        pos += end + 1;
+                    } else {
+                        children.push(Node::Text(input[pos..].to_string()));
+                        break;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // Collect text until next tag
+        let text_end = find_next_impl_tag(&input[pos..]).unwrap_or(input.len() - pos);
+        if text_end > 0 {
+            children.push(Node::Text(decode_entities(&input[pos..pos + text_end])));
+            pos += text_end;
+        } else {
+            children.push(Node::Text(input[pos..pos + 1].to_string()));
+            pos += 1;
+        }
+    }
+
+    merge_text_nodes(&mut children);
+    Ok((nodes, children))
+}
+
+/// Parse a `<node name="..." type="...">` declaration inside an implementation body.
+fn parse_node_decl(input: &str, base_offset: usize) -> Result<(NodeDecl, usize), ParseError> {
+    let tag_end = find_tag_end(input).ok_or_else(|| ParseError {
+        message: "unclosed <node> declaration tag".to_string(),
+        span: Span::new(base_offset, base_offset + input.len().min(50)),
+    })?;
+
+    let is_self_closing = input[..tag_end].ends_with('/');
+    let attrs_str = if is_self_closing {
+        &input[5..tag_end - 1] // after "<node"
+    } else {
+        &input[5..tag_end]
+    };
+
+    let attrs = parse_attributes(attrs_str, base_offset + 5)?;
+    let name = attrs.get("name").cloned().ok_or_else(|| ParseError {
+        message: "<node> declaration missing 'name' attribute".to_string(),
+        span: Span::new(base_offset, base_offset + tag_end + 1),
+    })?;
+
+    let type_str = attrs.get("type").cloned().ok_or_else(|| ParseError {
+        message: "<node> declaration missing 'type' attribute".to_string(),
+        span: Span::new(base_offset, base_offset + tag_end + 1),
+    })?;
+
+    let node_type = NodeType::parse(&type_str).ok_or_else(|| ParseError {
+        message: format!(
+            "invalid node type '{}' (expected 'tool' or 'prompt')",
+            type_str
+        ),
+        span: Span::new(base_offset, base_offset + tag_end + 1),
+    })?;
+
+    if is_self_closing {
+        let consumed = tag_end + 1;
+        return Ok((
+            NodeDecl {
+                name,
+                node_type,
+                tool_use: None,
+                description: None,
+                span: Span::new(base_offset, base_offset + consumed),
+            },
+            consumed,
+        ));
+    }
+
+    // Parse body: look for <tool use="..."/> and collect text
+    let content_start = tag_end + 1;
+    let close_tag = "</node>";
+    let content_end = input[content_start..]
+        .find(close_tag)
+        .ok_or_else(|| ParseError {
+            message: "unclosed <node> declaration tag".to_string(),
+            span: Span::new(base_offset, base_offset + content_start),
+        })?;
+
+    let body = &input[content_start..content_start + content_end];
+
+    // Extract <tool use="..."/> from body
+    let (tool_use, description) = extract_node_body(body);
+    let consumed = content_start + content_end + close_tag.len();
+
+    Ok((
+        NodeDecl {
+            name,
+            node_type,
+            tool_use,
+            description,
+            span: Span::new(base_offset, base_offset + consumed),
+        },
+        consumed,
+    ))
+}
+
+/// Extract `<tool use="..."/>` and remaining text from a node body.
+fn extract_node_body(input: &str) -> (Option<String>, Option<String>) {
+    let mut tool_use = None;
+    let mut text_parts = Vec::new();
+    let mut pos = 0;
+
+    while pos < input.len() {
+        // Check for <tool use="..."/>
+        if input[pos..].starts_with("<tool") && is_tag_start_after(&input[pos + 5..]) {
+            if let Some(tag_end) = find_tag_end(&input[pos..]) {
+                let is_self_closing = input[pos..pos + tag_end].ends_with('/');
+                if is_self_closing {
+                    let attrs_str = &input[pos + 5..pos + tag_end - 1];
+                    if let Ok(attrs) = parse_attributes(attrs_str, 0) {
+                        if let Some(use_val) = attrs.get("use") {
+                            tool_use = Some(use_val.clone());
+                        }
+                    }
+                    pos += tag_end + 1;
+                    continue;
+                }
+            }
+        }
+        // Accumulate text
+        let next = input[pos..].find('<').map_or(input.len() - pos, |i| i);
+        if next > 0 {
+            text_parts.push(&input[pos..pos + next]);
+            pos += next;
+        } else {
+            // Non-tool tag — include as text
+            text_parts.push(&input[pos..pos + 1]);
+            pos += 1;
+        }
+    }
+
+    let description = text_parts.join("").trim().to_string();
+    let description = if description.is_empty() {
+        None
+    } else {
+        Some(decode_entities(&description))
+    };
+
+    (tool_use, description)
 }
 
 /// Parse a `<param>` declaration inside an interface definition.
@@ -1142,6 +1591,8 @@ fn build_node_kind(attrs: &HashMap<String, String>, offset: usize) -> Result<Nod
                     returns: Vec::new(),
                     reads: None,
                     writes: None,
+                    skill_refs: Vec::new(),
+                    tool_constraints: Vec::new(),
                 })
             }
             "implementation" => {
@@ -1160,6 +1611,7 @@ fn build_node_kind(attrs: &HashMap<String, String>, offset: usize) -> Result<Nod
                     language: attrs.get("language").cloned(),
                     framework: attrs.get("framework").cloned(),
                     description: attrs.get("description").cloned(),
+                    nodes: Vec::new(),
                 })
             }
             other => Err(ParseError {
@@ -2012,6 +2464,84 @@ mod tests {
             assert_eq!(writes.as_ref().unwrap().patterns, vec!["raw/brain-questions.md"]);
         } else {
             panic!("expected InterfaceDefinition");
+        }
+    }
+
+    #[test]
+    fn test_parse_interface_with_skill_refs_and_tool_constraints() {
+        let doc = parse(r#"<skill define="interface" name="brain-query">
+  <param name="question" type="string" required="true">The question</param>
+  <skill ref="dde" role="enforcement" />
+  <tool allow="rename_session,view,edit" />
+</skill>"#).unwrap();
+
+        if let Node::Skill { kind: NodeKind::InterfaceDefinition { name, skill_refs, tool_constraints, params, .. }, .. } = &doc.nodes[0] {
+            assert_eq!(name, "brain-query");
+            assert_eq!(params.len(), 1);
+            assert_eq!(skill_refs.len(), 1);
+            assert_eq!(skill_refs[0].ref_name, "dde");
+            assert_eq!(skill_refs[0].role, Some("enforcement".to_string()));
+            assert_eq!(tool_constraints.len(), 1);
+            assert_eq!(tool_constraints[0].allow, vec!["rename_session", "view", "edit"]);
+            assert!(tool_constraints[0].deny.is_empty());
+        } else {
+            panic!("expected InterfaceDefinition");
+        }
+    }
+
+    #[test]
+    fn test_parse_interface_tool_deny() {
+        let doc = parse(r#"<skill define="interface" name="locked">
+  <tool deny="bash,exec" />
+</skill>"#).unwrap();
+
+        if let Node::Skill { kind: NodeKind::InterfaceDefinition { tool_constraints, .. }, .. } = &doc.nodes[0] {
+            assert_eq!(tool_constraints.len(), 1);
+            assert!(tool_constraints[0].allow.is_empty());
+            assert_eq!(tool_constraints[0].deny, vec!["bash", "exec"]);
+        } else {
+            panic!("expected InterfaceDefinition");
+        }
+    }
+
+    #[test]
+    fn test_parse_implementation_with_nodes() {
+        let doc = parse(r#"<skill define="implementation" name="brain-impl" implements="brain-query">
+  <node name="Rename" type="tool">
+    <tool use="rename_session" />
+    Rename this session
+  </node>
+  <node name="Synthesise" type="prompt">
+    Drill into pages and synthesise answer
+  </node>
+</skill>"#).unwrap();
+
+        if let Node::Skill { kind: NodeKind::ImplementationDefinition { name, nodes, .. }, .. } = &doc.nodes[0] {
+            assert_eq!(name, "brain-impl");
+            assert_eq!(nodes.len(), 2);
+            assert_eq!(nodes[0].name, "Rename");
+            assert_eq!(nodes[0].node_type, crate::ast::NodeType::Tool);
+            assert_eq!(nodes[0].tool_use, Some("rename_session".to_string()));
+            assert!(nodes[0].description.is_some());
+            assert_eq!(nodes[1].name, "Synthesise");
+            assert_eq!(nodes[1].node_type, crate::ast::NodeType::Prompt);
+            assert!(nodes[1].tool_use.is_none());
+        } else {
+            panic!("expected ImplementationDefinition");
+        }
+    }
+
+    #[test]
+    fn test_parse_implementation_no_nodes() {
+        let doc = parse(r#"<skill define="implementation" name="simple-impl" implements="test-skill">
+  Just a text implementation body with no structured nodes.
+</skill>"#).unwrap();
+
+        if let Node::Skill { kind: NodeKind::ImplementationDefinition { name, nodes, .. }, .. } = &doc.nodes[0] {
+            assert_eq!(name, "simple-impl");
+            assert!(nodes.is_empty());
+        } else {
+            panic!("expected ImplementationDefinition");
         }
     }
 }

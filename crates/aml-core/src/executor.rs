@@ -319,7 +319,7 @@ mod tests {
 
     fn setup_context() -> ExecutionContext {
         let mut registry = SkillRegistry::new();
-        registry.register_interface("testing".into(), None, Vec::new(), Vec::new(), None, None).unwrap();
+        registry.register_interface("testing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap();
         registry
             .register_implementation(
                 "pytest-impl".into(),
@@ -327,8 +327,9 @@ mod tests {
                 Some("python".into()),
                 None,
                 None,
-                0,
-            )
+            0,
+            Vec::new(),
+        )
             .unwrap();
 
         let mut ctx = ExecutionContext::new(registry);
@@ -372,9 +373,9 @@ mod tests {
     #[test]
     fn test_skip_on_failure() {
         let mut registry = SkillRegistry::new();
-        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None).unwrap();
+        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap();
         registry
-            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0)
+            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0, Vec::new())
             .unwrap();
 
         let mut ctx = ExecutionContext::new(registry);
@@ -393,9 +394,9 @@ mod tests {
     #[test]
     fn test_halt_on_failure() {
         let mut registry = SkillRegistry::new();
-        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None).unwrap();
+        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap();
         registry
-            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0)
+            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0, Vec::new())
             .unwrap();
 
         let mut ctx = ExecutionContext::new(registry);
@@ -439,9 +440,9 @@ mod tests {
     #[test]
     fn test_agent_on_failure_skip() {
         let mut registry = SkillRegistry::new();
-        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None).unwrap();
+        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap();
         registry
-            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0)
+            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0, Vec::new())
             .unwrap();
 
         let mut ctx = ExecutionContext::new(registry);
@@ -461,9 +462,9 @@ mod tests {
     #[test]
     fn test_session_on_failure_partial() {
         let mut registry = SkillRegistry::new();
-        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None).unwrap();
+        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap();
         registry
-            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0)
+            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0, Vec::new())
             .unwrap();
 
         let mut ctx = ExecutionContext::new(registry);
@@ -486,9 +487,9 @@ mod tests {
     #[test]
     fn test_agent_on_failure_halt() {
         let mut registry = SkillRegistry::new();
-        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None).unwrap();
+        registry.register_interface("failing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap();
         registry
-            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0)
+            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0, Vec::new())
             .unwrap();
 
         let mut ctx = ExecutionContext::new(registry);

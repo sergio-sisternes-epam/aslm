@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{IoDecl, NodeKind, ParamDecl, ReturnDecl};
+use crate::ast::{IoDecl, NodeDecl, NodeKind, ParamDecl, ReturnDecl, SkillRef, ToolConstraint};
 
 /// Metadata for a registered interface.
 #[derive(Debug, Clone)]
@@ -15,6 +15,10 @@ pub struct InterfaceEntry {
     pub reads: Option<IoDecl>,
     /// File-write declarations.
     pub writes: Option<IoDecl>,
+    /// Skill references (e.g. DDE enforcement).
+    pub skill_refs: Vec<SkillRef>,
+    /// Tool constraints as part of the interface contract.
+    pub tool_constraints: Vec<ToolConstraint>,
 }
 
 /// Metadata for a registered implementation.
@@ -27,6 +31,8 @@ pub struct ImplementationEntry {
     pub description: Option<String>,
     /// Higher priority wins during resolution (default: 0).
     pub priority: i32,
+    /// DDE node declarations.
+    pub nodes: Vec<NodeDecl>,
 }
 
 /// Registry error types.
@@ -80,6 +86,7 @@ impl SkillRegistry {
     }
 
     /// Register an interface definition.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_interface(
         &mut self,
         name: String,
@@ -88,6 +95,8 @@ impl SkillRegistry {
         returns: Vec<ReturnDecl>,
         reads: Option<IoDecl>,
         writes: Option<IoDecl>,
+        skill_refs: Vec<SkillRef>,
+        tool_constraints: Vec<ToolConstraint>,
     ) -> Result<(), RegistryError> {
         if self.interfaces.contains_key(&name) {
             return Err(RegistryError::DuplicateInterface(name));
@@ -101,12 +110,15 @@ impl SkillRegistry {
                 returns,
                 reads,
                 writes,
+                skill_refs,
+                tool_constraints,
             },
         );
         Ok(())
     }
 
     /// Register an implementation definition.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_implementation(
         &mut self,
         name: String,
@@ -115,6 +127,7 @@ impl SkillRegistry {
         framework: Option<String>,
         description: Option<String>,
         priority: i32,
+        nodes: Vec<NodeDecl>,
     ) -> Result<(), RegistryError> {
         if self.implementations.contains_key(&name) {
             return Err(RegistryError::DuplicateImplementation(name));
@@ -132,6 +145,7 @@ impl SkillRegistry {
                 framework,
                 description,
                 priority,
+                nodes,
             },
         );
         Ok(())
@@ -147,6 +161,8 @@ impl SkillRegistry {
                 returns,
                 reads,
                 writes,
+                skill_refs,
+                tool_constraints,
             } => self.register_interface(
                 name.clone(),
                 description.clone(),
@@ -154,6 +170,8 @@ impl SkillRegistry {
                 returns.clone(),
                 reads.clone(),
                 writes.clone(),
+                skill_refs.clone(),
+                tool_constraints.clone(),
             ),
             NodeKind::ImplementationDefinition {
                 name,
@@ -161,6 +179,7 @@ impl SkillRegistry {
                 language,
                 framework,
                 description,
+                nodes,
             } => self.register_implementation(
                 name.clone(),
                 implements.clone(),
@@ -168,6 +187,7 @@ impl SkillRegistry {
                 framework.clone(),
                 description.clone(),
                 0,
+                nodes.clone(),
             ),
             NodeKind::Invocation { .. } => Ok(()), // Invocations are not registered
         }
@@ -221,7 +241,7 @@ mod tests {
     #[test]
     fn test_register_and_lookup() {
         let mut reg = SkillRegistry::new();
-        reg.register_interface("testing".into(), Some("Run tests".into()), Vec::new(), Vec::new(), None, None)
+        reg.register_interface("testing".into(), Some("Run tests".into()), Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new())
             .unwrap();
         reg.register_implementation(
             "pytest-impl".into(),
@@ -230,6 +250,7 @@ mod tests {
             Some("pytest".into()),
             None,
             0,
+            Vec::new(),
         )
         .unwrap();
 
@@ -241,8 +262,8 @@ mod tests {
     #[test]
     fn test_duplicate_interface() {
         let mut reg = SkillRegistry::new();
-        reg.register_interface("testing".into(), None, Vec::new(), Vec::new(), None, None).unwrap();
-        let err = reg.register_interface("testing".into(), None, Vec::new(), Vec::new(), None, None).unwrap_err();
+        reg.register_interface("testing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap();
+        let err = reg.register_interface("testing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap_err();
         assert_eq!(err, RegistryError::DuplicateInterface("testing".into()));
     }
 
@@ -256,6 +277,7 @@ mod tests {
             None,
             None,
             0,
+            Vec::new(),
         )
         .unwrap();
         let errors = reg.validate();

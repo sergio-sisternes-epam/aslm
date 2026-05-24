@@ -1,4 +1,4 @@
-use crate::ast::{DirectiveKind, IoDecl, Node, NodeKind, ParamDecl, ReturnDecl, Span, ToolDirective};
+use crate::ast::{DirectiveKind, IoDecl, Node, NodeDecl, NodeKind, NodeType, ParamDecl, ReturnDecl, SkillRef, Span, ToolConstraint, ToolDirective};
 
 /// Validation error with source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,6 +290,8 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
             returns,
             reads,
             writes,
+            skill_refs,
+            tool_constraints,
             ..
         } => {
             if name.is_empty() {
@@ -300,9 +302,11 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                 });
             }
             validate_interface_declarations(params, returns, reads, writes, span, errors);
+            validate_skill_refs(skill_refs, span, errors);
+            validate_tool_constraints(tool_constraints, span, errors);
         }
         NodeKind::ImplementationDefinition {
-            name, implements, ..
+            name, implements, nodes, ..
         } => {
             if name.is_empty() {
                 errors.push(ValidationError {
@@ -319,6 +323,7 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                     severity: Severity::Error,
                 });
             }
+            validate_node_declarations(nodes, span, errors);
         }
     }
 }
@@ -553,6 +558,94 @@ fn validate_interface_declarations(
     // Multiple reads/writes are prevented at the parser level (last one wins),
     // but we validate the presence is meaningful.
     let _ = span; // used in the destructuring match arm
+}
+
+/// Validate skill ref declarations inside an interface body.
+fn validate_skill_refs(skill_refs: &[SkillRef], _span: Span, errors: &mut Vec<ValidationError>) {
+    for sr in skill_refs {
+        if sr.ref_name.is_empty() {
+            errors.push(ValidationError {
+                message: "skill ref must have a non-empty name".to_string(),
+                span: Some(sr.span),
+                severity: Severity::Error,
+            });
+        }
+    }
+}
+
+/// Validate tool constraint declarations inside an interface body.
+fn validate_tool_constraints(
+    constraints: &[ToolConstraint],
+    _span: Span,
+    errors: &mut Vec<ValidationError>,
+) {
+    for tc in constraints {
+        if !tc.allow.is_empty() && !tc.deny.is_empty() {
+            errors.push(ValidationError {
+                message: "<tool> in interface cannot have both 'allow' and 'deny'".to_string(),
+                span: Some(tc.span),
+                severity: Severity::Error,
+            });
+        }
+        if tc.allow.is_empty() && tc.deny.is_empty() {
+            errors.push(ValidationError {
+                message: "<tool> in interface must have 'allow' or 'deny'".to_string(),
+                span: Some(tc.span),
+                severity: Severity::Error,
+            });
+        }
+    }
+}
+
+/// Validate node declarations inside an implementation body.
+fn validate_node_declarations(
+    nodes: &[NodeDecl],
+    _span: Span,
+    errors: &mut Vec<ValidationError>,
+) {
+    let mut seen_names = Vec::new();
+    for node in nodes {
+        if node.name.is_empty() {
+            errors.push(ValidationError {
+                message: "node declaration must have a non-empty name".to_string(),
+                span: Some(node.span),
+                severity: Severity::Error,
+            });
+        }
+        if seen_names.contains(&node.name) {
+            errors.push(ValidationError {
+                message: format!("duplicate node name '{}' in implementation", node.name),
+                span: Some(node.span),
+                severity: Severity::Error,
+            });
+        } else {
+            seen_names.push(node.name.clone());
+        }
+
+        // tool-type nodes should declare <tool use="...">
+        if node.node_type == NodeType::Tool && node.tool_use.is_none() {
+            errors.push(ValidationError {
+                message: format!(
+                    "node '{}' has type 'tool' but no <tool use=\"...\"/> declaration",
+                    node.name
+                ),
+                span: Some(node.span),
+                severity: Severity::Warning,
+            });
+        }
+
+        // prompt-type nodes should not have <tool use="...">
+        if node.node_type == NodeType::Prompt && node.tool_use.is_some() {
+            errors.push(ValidationError {
+                message: format!(
+                    "node '{}' has type 'prompt' but declares <tool use=\"...\"/>",
+                    node.name
+                ),
+                span: Some(node.span),
+                severity: Severity::Warning,
+            });
+        }
+    }
 }
 
 fn validate_directive(kind: &DirectiveKind, span: Span, errors: &mut Vec<ValidationError>) {
@@ -1466,5 +1559,78 @@ mod tests {
 </skill>"#).unwrap();
         let errors = validate(&doc.nodes);
         assert!(errors.iter().any(|e| e.message.contains("invalid returns type")));
+    }
+
+    #[test]
+    fn test_validate_duplicate_node_names() {
+        let doc = parse(r#"<skill define="implementation" name="test-impl" implements="test">
+  <node name="Step1" type="tool">
+    <tool use="view" />
+    Do something
+  </node>
+  <node name="Step1" type="prompt">
+    Duplicate
+  </node>
+</skill>"#).unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors.iter().any(|e| e.message.contains("duplicate node name")));
+    }
+
+    #[test]
+    fn test_validate_tool_node_without_tool_use() {
+        let doc = parse(r#"<skill define="implementation" name="test-impl" implements="test">
+  <node name="Step1" type="tool">
+    No tool use declared
+  </node>
+</skill>"#).unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors.iter().any(|e| e.message.contains("no <tool use=") && e.severity == Severity::Warning));
+    }
+
+    #[test]
+    fn test_validate_prompt_node_with_tool_use() {
+        let doc = parse(r#"<skill define="implementation" name="test-impl" implements="test">
+  <node name="Think" type="prompt">
+    <tool use="view" />
+    Should not have tool use
+  </node>
+</skill>"#).unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors.iter().any(|e| e.message.contains("type 'prompt' but declares <tool use=") && e.severity == Severity::Warning));
+    }
+
+    #[test]
+    fn test_validate_tool_constraint_allow_deny_conflict() {
+        let doc = parse(r#"<skill define="interface" name="test">
+  <tool allow="view" deny="bash" />
+</skill>"#).unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors.iter().any(|e| e.message.contains("cannot have both 'allow' and 'deny'")));
+    }
+
+    #[test]
+    fn test_validate_valid_nodes_no_errors() {
+        let doc = parse(r#"<skill define="implementation" name="test-impl" implements="test">
+  <node name="Read" type="tool">
+    <tool use="view" />
+    Read a file
+  </node>
+  <node name="Think" type="prompt">
+    Reason about the data
+  </node>
+</skill>"#).unwrap();
+        let errors = validate(&doc.nodes);
+        // No errors or warnings expected for well-formed nodes
+        let node_errors: Vec<_> = errors.iter().filter(|e| e.message.contains("node")).collect();
+        assert!(node_errors.is_empty(), "unexpected errors: {:?}", node_errors);
+    }
+
+    #[test]
+    fn test_validate_skill_ref_empty_name() {
+        let doc = parse(r#"<skill define="interface" name="test">
+  <skill ref="" />
+</skill>"#).unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors.iter().any(|e| e.message.contains("skill ref must have a non-empty name")));
     }
 }
