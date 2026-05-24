@@ -2,7 +2,7 @@
 
 ## Input
 
-```sml
+```aml
 <skill interface="unit-testing-coverage" language="python">
   Test the auth module.
 </skill>

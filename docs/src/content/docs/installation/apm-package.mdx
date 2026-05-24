@@ -1,22 +1,22 @@
 ---
 title: APM Package
-description: Install SML via Agent Package Manager.
+description: Install AML via Agent Package Manager.
 ---
 
 ## Install via APM
 
 ```bash
-apm install sml
+apm install aml
 ```
 
-This installs the SML knowledge package which includes:
-- `sml-usage-guide` — How to write SML tags correctly
-- `sml-installation` — How to install the runtime
+This installs the AML knowledge package which includes:
+- `aml-usage-guide` — How to write AML tags correctly
+- `aml-installation` — How to install the runtime
 
 ## What You Get
 
-After installation, agents loading the `sml-usage-guide` skill will know how to:
-- Write correct SML syntax
+After installation, agents loading the `aml-usage-guide` skill will know how to:
+- Write correct AML syntax
 - Define interfaces and implementations
 - Use nesting and scoping patterns
 - Handle errors and retries
@@ -26,18 +26,18 @@ After installation, agents loading the `sml-usage-guide` skill will know how to:
 
 ```
 .apm/skills/
-├── sml-usage-guide/
+├── aml-usage-guide/
 │   ├── SKILL.md          # Core syntax rules and patterns
 │   └── references/
 │       └── system-prompts.md  # ReAct and Plan-and-Execute examples
-└── sml-installation/
+└── aml-installation/
     └── SKILL.md          # Runtime installation instructions
 ```
 
 ## APM vs pip
 
-| Concern | APM (`apm install sml`) | pip (`pip install sml`) |
+| Concern | APM (`apm install aml`) | pip (`pip install aml`) |
 |---------|------------------------|------------------------|
 | What | Knowledge (skills) | Runtime (parser + executor) |
-| For | Agents learning SML syntax | Applications executing SML |
+| For | Agents learning AML syntax | Applications executing AML |
 | Delivers | SKILL.md files | Compiled Rust + Python bindings |

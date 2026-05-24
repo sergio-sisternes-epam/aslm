@@ -1,16 +1,16 @@
 """
-End-to-end example: Parse, register, resolve, and execute SML.
+End-to-end example: Parse, register, resolve, and execute AML.
 
-This example demonstrates the full SML pipeline using the Python API.
+This example demonstrates the full AML pipeline using the Python API.
 """
 
 
 def main():
-    # Note: This example requires the sml package to be installed
-    # pip install sml (or: maturin develop --release)
-    from sml import SmlRegistry, execute, parse
+    # Note: This example requires the aml package to be installed
+    # pip install aml (or: maturin develop --release)
+    from aml import AmlRegistry, execute, parse
 
-    # 1. Define interfaces and implementations in SML
+    # 1. Define interfaces and implementations in AML
     definitions = """
 <skill define="interface" name="code-review">
   Analyse code for bugs, style issues, and security vulnerabilities.
@@ -27,7 +27,7 @@ def main():
 
     # 2. Parse and register definitions
     def_doc = parse(definitions)
-    registry = SmlRegistry()
+    registry = AmlRegistry()
     registry.register_from_document(def_doc)
 
     # 3. Parse an invocation

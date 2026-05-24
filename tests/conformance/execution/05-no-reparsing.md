@@ -2,7 +2,7 @@
 
 ## Input
 
-```sml
+```aml
 <skill interface="echo">
   return this text
 </skill>

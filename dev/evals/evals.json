@@ -1,100 +1,100 @@
 {
-  "description": "SML content and trigger evaluations",
+  "description": "AML content and trigger evaluations",
   "evals": [
     {
       "type": "trigger",
       "input": "I need to run tests on my Python code",
-      "expected_skill": "sml-usage-guide",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": true
     },
     {
       "type": "trigger",
-      "input": "How do I write SML tags?",
-      "expected_skill": "sml-usage-guide",
+      "input": "How do I write AML tags?",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": true
     },
     {
       "type": "trigger",
       "input": "Show me how to nest skills in a prompt",
-      "expected_skill": "sml-usage-guide",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": true
     },
     {
       "type": "trigger",
-      "input": "What is the SML syntax for interfaces?",
-      "expected_skill": "sml-usage-guide",
+      "input": "What is the AML syntax for interfaces?",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": true
     },
     {
       "type": "trigger",
       "input": "How do I define a skill implementation?",
-      "expected_skill": "sml-usage-guide",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": true
     },
     {
       "type": "trigger",
-      "input": "Install the SML parser on my machine",
-      "expected_skill": "sml-installation",
+      "input": "Install the AML parser on my machine",
+      "expected_skill": "aml-installation",
       "should_trigger": true
     },
     {
       "type": "trigger",
-      "input": "How do I pip install sml?",
-      "expected_skill": "sml-installation",
+      "input": "How do I pip install aml?",
+      "expected_skill": "aml-installation",
       "should_trigger": true
     },
     {
       "type": "trigger",
-      "input": "Build SML from source with maturin",
-      "expected_skill": "sml-installation",
+      "input": "Build AML from source with maturin",
+      "expected_skill": "aml-installation",
       "should_trigger": true
     },
     {
       "type": "trigger",
-      "input": "What platforms does SML support?",
-      "expected_skill": "sml-installation",
+      "input": "What platforms does AML support?",
+      "expected_skill": "aml-installation",
       "should_trigger": true
     },
     {
       "type": "trigger",
-      "input": "How do I use SML in a ReAct agent?",
-      "expected_skill": "sml-usage-guide",
+      "input": "How do I use AML in a ReAct agent?",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": true
     },
     {
       "type": "trigger",
       "input": "What is the weather like today?",
-      "expected_skill": "sml-usage-guide",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": false
     },
     {
       "type": "trigger",
       "input": "Write a Python function to sort a list",
-      "expected_skill": "sml-usage-guide",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": false
     },
     {
       "type": "trigger",
       "input": "Explain how Docker networking works",
-      "expected_skill": "sml-usage-guide",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": false
     },
     {
       "type": "trigger",
       "input": "Help me debug this TypeScript error",
-      "expected_skill": "sml-usage-guide",
+      "expected_skill": "aml-usage-guide",
       "should_trigger": false
     },
     {
       "type": "trigger",
       "input": "What is Kubernetes?",
-      "expected_skill": "sml-installation",
+      "expected_skill": "aml-installation",
       "should_trigger": false
     },
     {
       "type": "trigger",
       "input": "Set up a React project",
-      "expected_skill": "sml-installation",
+      "expected_skill": "aml-installation",
       "should_trigger": false
     },
     {

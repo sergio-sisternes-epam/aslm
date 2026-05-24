@@ -1,4 +1,4 @@
-# SML Interface Resolution
+# AML Interface Resolution
 
 ## Overview
 
@@ -133,7 +133,7 @@ Implementation and interface names occupy **separate namespaces**:
 - In Lookup Mode, implementation is checked first, then interface.
 
 Names within each namespace are **package-scoped** when multiple packages are
-installed. The fully-qualified form is `<package>/<name>` (e.g. `sml-stdlib/unit-testing-coverage`).
+installed. The fully-qualified form is `<package>/<name>` (e.g. `aml-stdlib/unit-testing-coverage`).
 Short names (without package prefix) resolve within the current package first,
 then search all packages.
 

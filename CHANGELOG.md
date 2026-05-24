@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial Rust parser and executor (`sml-core`)
-- Python bindings via PyO3 (`sml-python`)
-- SML language specification in `docs/spec/`
+- Initial Rust parser and executor (`aml-core`)
+- Python bindings via PyO3 (`aml-python`)
+- AML language specification in `docs/spec/`
 - Conformance test suite in `tests/conformance/`

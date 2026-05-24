@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-The SML runtime needs to be fast, safe, and accessible from Python (the dominant AI/ML ecosystem language).
+The AML runtime needs to be fast, safe, and accessible from Python (the dominant AI/ML ecosystem language).
 
 ## Decision
 Implement the core runtime in Rust with Python bindings via PyO3.

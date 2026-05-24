@@ -2,7 +2,7 @@
 
 ## Input
 
-```sml
+```aml
 <skill interface="report">
   <skill interface="critical-data" on-failure="halt">
     fetch critical metrics

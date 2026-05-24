@@ -1,23 +1,23 @@
-# ADR-009: Teach SML via Usage Guide Skill
+# ADR-009: Teach AML via Usage Guide Skill
 
 ## Status
 Accepted
 
 ## Context
-Agents need to learn how to use SML correctly. Options:
+Agents need to learn how to use AML correctly. Options:
 - Hardcode instructions in system prompts
 - Distribute as documentation
 - Deliver as an APM skill (self-contained, versionable)
 
 ## Decision
-Deliver SML usage instructions as an APM skill (`sml-usage-guide`) that agents can load.
+Deliver AML usage instructions as an APM skill (`aml-usage-guide`) that agents can load.
 
 ## Rationale
-- Self-contained: the skill carries everything needed to use SML
+- Self-contained: the skill carries everything needed to use AML
 - Versionable: updates to instructions are delivered via APM
 - Composable: can be loaded alongside other skills
 - Testable: trigger and content evals validate effectiveness
-- Consistent with "eat your own dog food" — SML knowledge delivered via APM
+- Consistent with "eat your own dog food" — AML knowledge delivered via APM
 
 ## Consequences
 - Must follow SKILL.md format (≤500 lines, ≤5000 tokens, ≤1024 char description)

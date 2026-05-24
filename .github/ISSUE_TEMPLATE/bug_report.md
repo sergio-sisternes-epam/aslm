@@ -24,7 +24,7 @@ labels: bug
 
 ## Environment
 
-- SML version:
+- AML version:
 - Rust version (`rustc --version`):
 - Python version (if applicable):
 - OS:

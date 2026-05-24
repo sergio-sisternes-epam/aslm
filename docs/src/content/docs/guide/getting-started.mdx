@@ -1,17 +1,17 @@
 ---
 title: Getting Started
-description: Quick start guide for using SML in your agent prompts.
+description: Quick start guide for using AML in your agent prompts.
 ---
 
 ## Installation
 
 ```bash
-pip install sml
+pip install aml
 ```
 
-## Your First SML Tag
+## Your First AML Tag
 
-SML tags are embedded directly in agent prompts:
+AML tags are embedded directly in agent prompts:
 
 ```xml
 <skill interface="code-review" language="python">
@@ -37,13 +37,13 @@ Before invoking, define your interfaces and implementations:
 ## Using the Python API
 
 ```python
-from sml import parse, execute, SmlRegistry
+from aml import parse, execute, AmlRegistry
 
-# Parse the SML document
+# Parse the AML document
 doc = parse(prompt_text)
 
 # Register definitions
-registry = SmlRegistry()
+registry = AmlRegistry()
 registry.register_from_document(doc)
 
 # Execute

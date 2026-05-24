@@ -1,4 +1,4 @@
-# SML Formal Grammar (EBNF)
+# AML Formal Grammar (EBNF)
 
 # A document is arbitrary text interspersed with skill tags.
 Document       ::= (Text | SkillNode)*
@@ -91,7 +91,7 @@ Text           ::= [^<]+                          # any content that is not a ta
 # Leading/trailing whitespace in attribute values is trimmed.
 
 # --- COMMENTS ---
-# SML supports XML-style comments:
+# AML supports XML-style comments:
 Comment        ::= '<!--' CommentContent '-->'
 CommentContent ::= [^-]* | '-' [^-]+             # no '--' inside comments
 # Comments are stripped during parsing and do not appear in the AST.

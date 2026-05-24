@@ -5,15 +5,15 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use sml_core::ast::{Node, NodeKind};
-use sml_core::executor::ExecutionContext;
-use sml_core::registry::SkillRegistry as RustRegistry;
+use aml_core::ast::{Node, NodeKind};
+use aml_core::executor::ExecutionContext;
+use aml_core::registry::SkillRegistry as RustRegistry;
 
-/// Python wrapper for a parsed SML document.
+/// Python wrapper for a parsed AML document.
 #[pyclass]
 #[derive(Clone)]
 struct Document {
-    inner: sml_core::Document,
+    inner: aml_core::Document,
 }
 
 #[pymethods]
@@ -78,12 +78,12 @@ impl Document {
 /// Python wrapper for the skill registry.
 #[pyclass]
 #[derive(Clone)]
-struct SmlRegistry {
+struct AmlRegistry {
     inner: RustRegistry,
 }
 
 #[pymethods]
-impl SmlRegistry {
+impl AmlRegistry {
     #[new]
     fn new() -> Self {
         Self {
@@ -137,10 +137,10 @@ impl SmlRegistry {
     }
 }
 
-/// Parse an SML document from a string.
+/// Parse an AML document from a string.
 #[pyfunction]
 fn parse(input: &str) -> PyResult<Document> {
-    match sml_core::parse(input) {
+    match aml_core::parse(input) {
         Ok(doc) => Ok(Document { inner: doc }),
         Err(e) => Err(PyValueError::new_err(e.to_string())),
     }
@@ -148,18 +148,18 @@ fn parse(input: &str) -> PyResult<Document> {
 
 /// Execute a document with a registry (pass-through mode — no custom handlers).
 #[pyfunction]
-fn execute(doc: &Document, registry: &SmlRegistry) -> PyResult<String> {
+fn execute(doc: &Document, registry: &AmlRegistry) -> PyResult<String> {
     let ctx = ExecutionContext::new(registry.inner.clone());
     ctx.execute(&doc.inner)
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-/// The SML Python module.
+/// The AML Python module.
 #[pymodule]
-fn sml(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn aml(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add_function(wrap_pyfunction!(execute, m)?)?;
     m.add_class::<Document>()?;
-    m.add_class::<SmlRegistry>()?;
+    m.add_class::<AmlRegistry>()?;
     Ok(())
 }

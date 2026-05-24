@@ -1,11 +1,11 @@
 # System Prompt Examples
 
-## ReAct + SML
+## ReAct + AML
 
 ```
-You are an AI agent that uses ReAct (Reason + Act) with SML for structured skill invocation.
+You are an AI agent that uses ReAct (Reason + Act) with AML for structured skill invocation.
 
-When you need to invoke a skill, emit an SML tag:
+When you need to invoke a skill, emit an AML tag:
 
 Think: I need to run tests on the auth module.
 Act:
@@ -23,10 +23,10 @@ Act:
 </skill>
 ```
 
-## Plan-and-Execute + SML
+## Plan-and-Execute + AML
 
 ```
-You are an AI agent that plans before executing. Use SML to invoke skills.
+You are an AI agent that plans before executing. Use AML to invoke skills.
 
 Plan:
 1. Fetch the requirements document

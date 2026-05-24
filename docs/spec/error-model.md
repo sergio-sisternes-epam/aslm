@@ -1,15 +1,15 @@
-# SML Error Model
+# AML Error Model
 
 ## Overview
 
-SML defines a structured error model covering parsing, validation, resolution,
+AML defines a structured error model covering parsing, validation, resolution,
 and execution. All errors include source spans for precise tooling integration.
 
 ## Error Categories
 
 ### Parse Errors
 
-Raised during Phase 1 (Parse). These indicate syntactically invalid SML.
+Raised during Phase 1 (Parse). These indicate syntactically invalid AML.
 
 | Error | Cause | Span points to |
 |---|---|---|
@@ -23,7 +23,7 @@ Parse errors are **unrecoverable** — the document cannot proceed past Phase 1.
 ### Validation Errors
 
 Raised during Phase 2 (Validate). These indicate well-formed but semantically
-invalid SML.
+invalid AML.
 
 | Error | Cause | Span points to |
 |---|---|---|
@@ -113,7 +113,7 @@ Errors are formatted with source context:
 
 ```
 error[E0301]: no implementation found for interface 'unit-testing-coverage'
-  --> prompt.sml:15:3
+  --> prompt.aml:15:3
    |
 15 |   <skill interface="unit-testing-coverage" language="go">
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -127,7 +127,7 @@ error[E0301]: no implementation found for interface 'unit-testing-coverage'
 The Python API exposes structured error objects:
 
 ```python
-from sml import parse, SmlError, ErrorKind
+from aml import parse, SmlError, ErrorKind
 
 try:
     tree = parse(prompt)

@@ -2,7 +2,7 @@
 
 ## Input
 
-```sml
+```aml
 <skill interface="report">
   Introduction paragraph.
   <skill interface="fetch-metrics" on-failure="skip" retries="1">

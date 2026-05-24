@@ -4,12 +4,12 @@ import starlightLinksValidator from 'starlight-links-validator';
 
 export default defineConfig({
   site: 'https://sergio-sisternes-epam.github.io',
-  base: '/aslm',
+  base: '/aml',
   integrations: [
     starlight({
-      title: 'SML — Skill Markup Language',
+      title: 'AML — Agent Markup Language',
       social: {
-        github: 'https://github.com/sergio-sisternes-epam/aslm',
+        github: 'https://github.com/sergio-sisternes-epam/aml',
       },
       sidebar: [
         {

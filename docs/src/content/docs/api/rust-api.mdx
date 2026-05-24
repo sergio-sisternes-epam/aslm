@@ -1,16 +1,16 @@
 ---
 title: Rust API
-description: Rust API reference for sml-core.
+description: Rust API reference for aml-core.
 ---
 
-## Crate: `sml-core`
+## Crate: `aml-core`
 
 The Rust API is documented via `cargo doc`. Key types:
 
 ### Parsing
 
 ```rust
-use sml_core::parse;
+use aml_core::parse;
 
 let doc = parse(r#"<skill interface="testing">Run tests</skill>"#).unwrap();
 ```
@@ -18,7 +18,7 @@ let doc = parse(r#"<skill interface="testing">Run tests</skill>"#).unwrap();
 ### Registry
 
 ```rust
-use sml_core::SkillRegistry;
+use aml_core::SkillRegistry;
 
 let mut registry = SkillRegistry::new();
 registry.register_interface("testing".into(), Some("Run tests".into())).unwrap();
@@ -33,7 +33,7 @@ registry.register_implementation(
 ### Execution
 
 ```rust
-use sml_core::{ExecutionContext, SkillRegistry, parse};
+use aml_core::{ExecutionContext, SkillRegistry, parse};
 
 let registry = SkillRegistry::new();
 let ctx = ExecutionContext::new(registry);
@@ -64,5 +64,5 @@ let result = ctx.execute(&doc).unwrap();
 ## Building Documentation
 
 ```bash
-cargo doc --open -p sml-core
+cargo doc --open -p aml-core
 ```

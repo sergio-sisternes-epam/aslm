@@ -1,8 +1,8 @@
-# SML Execution Lifecycle
+# AML Execution Lifecycle
 
 ## Overview
 
-SML processing follows a strict 6-phase pipeline. Each phase has well-defined
+AML processing follows a strict 6-phase pipeline. Each phase has well-defined
 inputs, outputs, and error conditions. Phases execute sequentially; no phase
 may be skipped.
 
@@ -12,13 +12,13 @@ Input Prompt → Parse → Validate → Register Definitions → Resolve → Exe
 
 ## Phase 1: Parse
 
-**Input**: Raw text string (the prompt or document containing SML tags).
+**Input**: Raw text string (the prompt or document containing AML tags).
 
 **Output**: Unvalidated AST (`Document` node containing `SkillNode` and `Text` nodes).
 
 **Behaviour**:
-- The parser tokenises SML tags within arbitrary prompt text.
-- Non-SML text is preserved as `Text` nodes.
+- The parser tokenises AML tags within arbitrary prompt text.
+- Non-AML text is preserved as `Text` nodes.
 - Nested `<skill>` tags produce nested `SkillNode` children.
 - `<param>` tags within a `<skill>` are attached to the parent node.
 - XML comments (`<!-- ... -->`) are stripped.
@@ -31,8 +31,8 @@ Input Prompt → Parse → Validate → Register Definitions → Resolve → Exe
 - All errors include source spans for precise error reporting.
 
 **Tolerance policy**: The parser is **embedded-tolerant** — it operates within
-arbitrary prompt text. Any `<` that does not begin a recognised SML tag is
-treated as literal text. The parser does NOT attempt to parse non-SML XML/HTML.
+arbitrary prompt text. Any `<` that does not begin a recognised AML tag is
+treated as literal text. The parser does NOT attempt to parse non-AML XML/HTML.
 
 ## Phase 2: Validate
 
@@ -161,6 +161,6 @@ document, resolution always produces the same binding (or the same error).
 
 1. **Definitions never execute.** A `define=` node's body is descriptive text, never invoked.
 2. **Execution is bottom-up.** Inner skills complete before outer skills see their scope.
-3. **Results are escaped.** Injected text is NOT re-parsed for new SML tags.
+3. **Results are escaped.** Injected text is NOT re-parsed for new AML tags.
 4. **Resolution is deterministic.** Same inputs → same outputs (or same errors).
 5. **Errors include spans.** Every error references the source location for tooling.

@@ -1,4 +1,4 @@
-# SML Execution Model
+# AML Execution Model
 
 ## Overview
 
@@ -188,7 +188,7 @@ struct ExecutionContext {
 
 ### Depth limit
 
-To prevent infinite recursion (e.g. a skill that emits SML which gets re-parsed),
+To prevent infinite recursion (e.g. a skill that emits AML which gets re-parsed),
 a hard depth limit is enforced:
 - Default: 16 levels of nesting.
 - Configurable per-registry.

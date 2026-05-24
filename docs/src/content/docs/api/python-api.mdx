@@ -1,31 +1,31 @@
 ---
 title: Python API
-description: Python API reference for the SML runtime.
+description: Python API reference for the AML runtime.
 ---
 
-## Module: `sml`
+## Module: `aml`
 
 ### `parse(input: str) -> Document`
 
-Parse an SML document from a string. Returns a `Document` object.
+Parse an AML document from a string. Returns a `Document` object.
 
 ```python
-from sml import parse
+from aml import parse
 
 doc = parse('<skill interface="testing">Run tests</skill>')
 ```
 
-Raises `ValueError` if the input contains malformed SML.
+Raises `ValueError` if the input contains malformed AML.
 
-### `execute(doc: Document, registry: SmlRegistry) -> str`
+### `execute(doc: Document, registry: AmlRegistry) -> str`
 
 Execute a parsed document with the given registry. Returns the final text output.
 
 ```python
-from sml import execute, parse, SmlRegistry
+from aml import execute, parse, AmlRegistry
 
 doc = parse(prompt)
-registry = SmlRegistry()
+registry = AmlRegistry()
 result = execute(doc, registry)
 ```
 
@@ -37,11 +37,11 @@ result = execute(doc, registry)
 | `definitions()` | List of definition names (e.g. `["interface:testing", "impl:pytest"]`) |
 | `invocations()` | List of invocation targets (e.g. `["testing", "code-review"]`) |
 
-### `SmlRegistry`
+### `AmlRegistry`
 
 | Method | Description |
 |--------|-------------|
-| `SmlRegistry()` | Create empty registry |
+| `AmlRegistry()` | Create empty registry |
 | `register_interface(name, description=None)` | Register an interface |
 | `register_implementation(name, implements, language=None, framework=None, description=None, priority=0)` | Register an implementation |
 | `register_from_document(doc)` | Register all definitions from a parsed document |
