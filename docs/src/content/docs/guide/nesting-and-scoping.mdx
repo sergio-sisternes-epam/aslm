@@ -1,6 +1,6 @@
 ---
 title: Nesting & Scoping
-description: Composition patterns with nested AML skills.
+description: Composition patterns with nested AML skills and directives.
 ---
 
 ## Scoping
@@ -30,6 +30,50 @@ Skills can be nested. By default, inner skills execute first (bottom-up):
 1. `fetch-url` executes → returns article text
 2. Article text replaces the inner `<skill>` tag
 3. `summarise` executes with the article as its scope
+
+## Directive Nesting
+
+Directive tags (`<tool>`, `<session>`, `<agent>`) can nest freely with each other and with `<skill>`:
+
+```xml
+<agent name="reviewer">
+  <tool name="bash">
+    <skill interface="lint">code to review</skill>
+  </tool>
+</agent>
+```
+
+This means: delegate to the "reviewer" subagent, restrict it to bash, then invoke the lint skill.
+
+### Tool Constraints
+
+```xml
+<tool allow="bash,grep">
+  <skill interface="search">find matching files</skill>
+</tool>
+```
+
+The `<tool>` tag narrows tool access for all descendants. It cannot expand access beyond the host policy.
+
+### Session Isolation
+
+```xml
+<session name="backend" isolated="true">
+  <skill interface="deploy">deploy the backend</skill>
+</session>
+```
+
+Runs the enclosed content in a separate session. Isolated sessions share no state with the parent.
+
+### Agent Delegation
+
+```xml
+<agent name="specialist" model="gpt-4" mode="sync">
+  <skill interface="analysis">complex data</skill>
+</agent>
+```
+
+Delegates execution to a subagent. The subagent receives the content as its prompt.
 
 ## Wrapper Pattern
 

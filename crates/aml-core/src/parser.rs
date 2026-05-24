@@ -1,6 +1,65 @@
 use std::collections::HashMap;
 
-use crate::ast::{Document, ExecutionPolicy, FailureMode, Node, NodeKind, Param, Span};
+use crate::ast::{
+    AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, Node,
+    NodeKind, Param, SessionDirective, Span, ToolDirective,
+};
+
+/// Recognised tag names in AML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TagName {
+    Skill,
+    Param,
+    Tool,
+    Session,
+    Agent,
+}
+
+impl TagName {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Skill => "skill",
+            Self::Param => "param",
+            Self::Tool => "tool",
+            Self::Session => "session",
+            Self::Agent => "agent",
+        }
+    }
+
+    fn len(self) -> usize {
+        self.as_str().len()
+    }
+
+    /// Tags that can contain children (not param).
+    #[allow(dead_code)]
+    fn is_element(self) -> bool {
+        !matches!(self, Self::Param)
+    }
+
+    /// Tags that are directives.
+    #[allow(dead_code)]
+    fn is_directive(self) -> bool {
+        matches!(self, Self::Tool | Self::Session | Self::Agent)
+    }
+}
+
+/// All recognised tag names for open-tag detection.
+const ALL_TAGS: &[TagName] = &[
+    TagName::Skill,
+    TagName::Param,
+    TagName::Tool,
+    TagName::Session,
+    TagName::Agent,
+];
+
+/// Element tags (skill + directives — everything except param).
+#[allow(dead_code)]
+const ELEMENT_TAGS: &[TagName] = &[
+    TagName::Skill,
+    TagName::Tool,
+    TagName::Session,
+    TagName::Agent,
+];
 
 /// Parse errors with source location.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,9 +84,206 @@ impl std::error::Error for ParseError {}
 ///
 /// The parser is embedded-tolerant: it extracts `<skill>` and `<param>` tags
 /// from arbitrary text, treating everything else as literal `Text` nodes.
+///
+/// If the input contains an `<aml version="...">` wrapper, the document's
+/// `version` field is populated and the wrapper's children become root nodes.
+/// Only whitespace and comments are allowed outside the `<aml>` wrapper.
 pub fn parse(input: &str) -> Result<Document, ParseError> {
+    // Pre-scan for <aml> root wrapper before generic node parsing.
+    if let Some(aml_result) = try_parse_aml_root(input)? {
+        return Ok(aml_result);
+    }
+
+    // Fragment mode — no <aml> wrapper.
+    // Reject any nested <aml> tags that appear without a root wrapper.
+    reject_nested_aml(input, 0)?;
+
     let nodes = parse_nodes(input, 0)?;
     Ok(Document::new(nodes))
+}
+
+/// Attempt to parse an `<aml version="...">` root wrapper.
+/// Returns `None` if no `<aml>` tag is found at the root level.
+fn try_parse_aml_root(input: &str) -> Result<Option<Document>, ParseError> {
+    const AML_OPEN: &str = "<aml";
+    const AML_CLOSE: &str = "</aml>";
+
+    // Scan for <aml at root level
+    let Some(aml_start) = input.find(AML_OPEN) else {
+        return Ok(None);
+    };
+
+    // Verify the character after "<aml" is valid tag-start
+    let after_tag = &input[aml_start + AML_OPEN.len()..];
+    if !is_tag_start_after(after_tag) {
+        return Ok(None);
+    }
+
+    // Only whitespace/comments allowed before <aml>
+    let before = input[..aml_start].trim();
+    if !before.is_empty() && !is_only_comments(before) {
+        return Err(ParseError {
+            message: "non-whitespace content before <aml> root wrapper is not allowed".to_string(),
+            span: Span::new(0, aml_start),
+        });
+    }
+
+    // Parse the opening tag attributes
+    let tag_rest = &input[aml_start..];
+    let tag_end = find_tag_end(tag_rest).ok_or_else(|| ParseError {
+        message: "unclosed <aml> opening tag".to_string(),
+        span: Span::new(aml_start, aml_start + tag_rest.len().min(50)),
+    })?;
+
+    let is_self_closing = tag_rest[..tag_end].ends_with('/');
+    let attrs_str = if is_self_closing {
+        &tag_rest[AML_OPEN.len()..tag_end - 1]
+    } else {
+        &tag_rest[AML_OPEN.len()..tag_end]
+    };
+
+    let attrs = parse_attributes(attrs_str, aml_start + AML_OPEN.len())?;
+
+    // version is required
+    let version = attrs.get("version").cloned().ok_or_else(|| ParseError {
+        message: "<aml> requires 'version' attribute".to_string(),
+        span: Span::new(aml_start, aml_start + tag_end + 1),
+    })?;
+
+    // Only version attribute allowed
+    for key in attrs.keys() {
+        if key != "version" {
+            return Err(ParseError {
+                message: format!(
+                    "<aml> does not support '{key}' attribute (only 'version' is allowed)"
+                ),
+                span: Span::new(aml_start, aml_start + tag_end + 1),
+            });
+        }
+    }
+
+    if is_self_closing {
+        let after_close = input[aml_start + tag_end + 1..].trim();
+        if !after_close.is_empty() && !is_only_comments(after_close) {
+            return Err(ParseError {
+                message: "non-whitespace content after <aml/> root wrapper is not allowed"
+                    .to_string(),
+                span: Span::new(aml_start + tag_end + 1, input.len()),
+            });
+        }
+        return Ok(Some(Document::with_version(version, Vec::new())));
+    }
+
+    // Find </aml> close tag
+    let content_start = aml_start + tag_end + 1;
+    let close_pos = input[content_start..]
+        .find(AML_CLOSE)
+        .ok_or_else(|| ParseError {
+            message: "unclosed <aml> tag — missing </aml>".to_string(),
+            span: Span::new(aml_start, input.len()),
+        })?;
+
+    let content = &input[content_start..content_start + close_pos];
+
+    // Check for nested <aml> inside the content (before checking after-close,
+    // since nested <aml> can cause the wrong </aml> to be matched first).
+    reject_nested_aml(content, content_start)?;
+
+    // Only whitespace/comments allowed after </aml>
+    let after_close = input[content_start + close_pos + AML_CLOSE.len()..].trim();
+    if !after_close.is_empty() && !is_only_comments(after_close) {
+        return Err(ParseError {
+            message: "non-whitespace content after </aml> is not allowed".to_string(),
+            span: Span::new(content_start + close_pos + AML_CLOSE.len(), input.len()),
+        });
+    }
+
+    // Check for multiple <aml> at root
+    let remaining_after_close = &input[content_start + close_pos + AML_CLOSE.len()..];
+    if let Some(second) = remaining_after_close.find(AML_OPEN) {
+        let abs = content_start + close_pos + AML_CLOSE.len() + second;
+        let after = &remaining_after_close[second + AML_OPEN.len()..];
+        if is_tag_start_after(after) {
+            return Err(ParseError {
+                message: "multiple <aml> root wrappers are not allowed".to_string(),
+                span: Span::new(abs, abs + 20),
+            });
+        }
+    }
+
+    let nodes = parse_nodes(content, content_start)?;
+    Ok(Some(Document::with_version(version, nodes)))
+}
+
+/// Reject any `<aml` tags in content (they can only appear as root wrapper).
+fn reject_nested_aml(content: &str, base_offset: usize) -> Result<(), ParseError> {
+    let mut search_pos = 0;
+    while let Some(pos) = content[search_pos..].find("<aml") {
+        let abs = search_pos + pos;
+        let after = &content[abs + 4..];
+        if is_tag_start_after(after) {
+            return Err(ParseError {
+                message: "<aml> cannot appear nested inside other content; it is only valid as a root wrapper".to_string(),
+                span: Span::new(base_offset + abs, base_offset + abs + 20),
+            });
+        }
+        search_pos = abs + 4;
+    }
+    Ok(())
+}
+
+/// Check if a string contains only XML comments and whitespace.
+fn is_only_comments(s: &str) -> bool {
+    let mut pos = 0;
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let bytes = trimmed.as_bytes();
+    while pos < bytes.len() {
+        if trimmed[pos..].starts_with("<!--") {
+            if let Some(end) = trimmed[pos..].find("-->") {
+                pos += end + 3;
+            } else {
+                return false;
+            }
+        } else if bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+/// Detect which tag name starts at `s`, if any.
+fn detect_open_tag(s: &str) -> Option<TagName> {
+    for &tag in ALL_TAGS {
+        let prefix = format!("<{}", tag.as_str());
+        if s.starts_with(&prefix) && is_tag_start_after(&s[prefix.len()..]) {
+            return Some(tag);
+        }
+    }
+    None
+}
+
+/// Detect which close tag starts at `s`, if any.
+fn detect_close_tag(s: &str) -> Option<TagName> {
+    for &tag in ALL_TAGS {
+        let close = format!("</{}>", tag.as_str());
+        if s.starts_with(&close) {
+            return Some(tag);
+        }
+    }
+    None
+}
+
+/// Check the character right after the tag name is valid (whitespace, >, /).
+fn is_tag_start_after(rest: &str) -> bool {
+    rest.is_empty()
+        || rest.starts_with(char::is_whitespace)
+        || rest.starts_with('>')
+        || rest.starts_with('/')
 }
 
 fn parse_nodes(input: &str, base_offset: usize) -> Result<Vec<Node>, ParseError> {
@@ -40,28 +296,37 @@ fn parse_nodes(input: &str, base_offset: usize) -> Result<Vec<Node>, ParseError>
             if let Some(end) = input[pos..].find("-->") {
                 pos += end + 3;
             } else {
-                // Unclosed comment — treat as text
                 nodes.push(Node::Text(input[pos..].to_string()));
                 break;
             }
-        } else if input[pos..].starts_with("</skill>") {
-            // Closing tag — this should only be reached if we're parsing
-            // at the top level with a stray close tag. Treat as text.
-            nodes.push(Node::Text("</skill>".to_string()));
-            pos += 8;
-        } else if input[pos..].starts_with("<skill") && is_tag_start(&input[pos..]) {
-            // Parse a skill tag
-            let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
-            nodes.push(node);
-            pos += consumed;
-        } else if input[pos..].starts_with("<param") && is_tag_start(&input[pos..]) {
-            // Stray param outside skill — treat as text up to >
-            if let Some(end) = input[pos..].find('>') {
-                nodes.push(Node::Text(input[pos..pos + end + 1].to_string()));
-                pos += end + 1;
-            } else {
-                nodes.push(Node::Text(input[pos..].to_string()));
-                break;
+        } else if let Some(close_tag) = detect_close_tag(&input[pos..]) {
+            // Stray closing tag at top level — treat as text
+            let close_str = format!("</{}>", close_tag.as_str());
+            nodes.push(Node::Text(close_str.clone()));
+            pos += close_str.len();
+        } else if let Some(tag) = detect_open_tag(&input[pos..]) {
+            match tag {
+                TagName::Skill => {
+                    let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
+                    nodes.push(node);
+                    pos += consumed;
+                }
+                TagName::Tool | TagName::Session | TagName::Agent => {
+                    let (node, consumed) =
+                        parse_directive_tag(tag, &input[pos..], base_offset + pos)?;
+                    nodes.push(node);
+                    pos += consumed;
+                }
+                TagName::Param => {
+                    // Stray param outside skill — treat as text up to >
+                    if let Some(end) = input[pos..].find('>') {
+                        nodes.push(Node::Text(input[pos..pos + end + 1].to_string()));
+                        pos += end + 1;
+                    } else {
+                        nodes.push(Node::Text(input[pos..].to_string()));
+                        break;
+                    }
+                }
             }
         } else {
             // Accumulate text until we hit a potential tag
@@ -82,34 +347,11 @@ fn parse_nodes(input: &str, base_offset: usize) -> Result<Vec<Node>, ParseError>
     Ok(nodes)
 }
 
-fn is_tag_start(s: &str) -> bool {
-    let tag = if let Some(rest) = s.strip_prefix("<skill") {
-        rest
-    } else if let Some(rest) = s.strip_prefix("<param") {
-        rest
-    } else {
-        return false;
-    };
-    tag.is_empty()
-        || tag.starts_with(char::is_whitespace)
-        || tag.starts_with('>')
-        || tag.starts_with('/')
-}
-
 fn find_next_tag_start(s: &str) -> Option<usize> {
     let mut i = 0;
     while i < s.len() {
         if s[i..].starts_with('<') {
-            if s[i..].starts_with("<skill") && is_tag_start(&s[i..]) {
-                return Some(i);
-            }
-            if s[i..].starts_with("</skill>") {
-                return Some(i);
-            }
-            if s[i..].starts_with("<param") && is_tag_start(&s[i..]) {
-                return Some(i);
-            }
-            if s[i..].starts_with("</param>") {
+            if detect_open_tag(&s[i..]).is_some() || detect_close_tag(&s[i..]).is_some() {
                 return Some(i);
             }
             if s[i..].starts_with("<!--") {
@@ -122,6 +364,9 @@ fn find_next_tag_start(s: &str) -> Option<usize> {
 }
 
 fn parse_skill_tag(input: &str, offset: usize) -> Result<(Node, usize), ParseError> {
+    let tag_name = TagName::Skill;
+    let tag_prefix_len = 1 + tag_name.len(); // "<skill"
+
     // Parse opening tag: <skill attrs>
     let tag_end = find_tag_end(input).ok_or_else(|| ParseError {
         message: "unclosed opening tag".to_string(),
@@ -130,12 +375,12 @@ fn parse_skill_tag(input: &str, offset: usize) -> Result<(Node, usize), ParseErr
 
     let is_self_closing = input[..tag_end].ends_with('/');
     let attrs_str = if is_self_closing {
-        &input[6..tag_end - 1] // skip "<skill" and trailing "/"
+        &input[tag_prefix_len..tag_end - 1]
     } else {
-        &input[6..tag_end] // skip "<skill"
+        &input[tag_prefix_len..tag_end]
     };
 
-    let attrs = parse_attributes(attrs_str, offset + 6)?;
+    let attrs = parse_attributes(attrs_str, offset + tag_prefix_len)?;
     let kind = build_node_kind(&attrs, offset)?;
 
     if is_self_closing {
@@ -151,10 +396,10 @@ fn parse_skill_tag(input: &str, offset: usize) -> Result<(Node, usize), ParseErr
         ));
     }
 
-    // Find matching </skill>
+    // Find matching close tag
     let content_start = tag_end + 1;
     let (content_end, close_tag_end) =
-        find_matching_close(&input[content_start..], offset + content_start)?;
+        find_matching_close(tag_name, &input[content_start..], offset + content_start)?;
 
     let content = &input[content_start..content_start + content_end];
 
@@ -169,6 +414,58 @@ fn parse_skill_tag(input: &str, offset: usize) -> Result<(Node, usize), ParseErr
         Node::Skill {
             kind,
             params,
+            children,
+            span: Span::new(offset, offset + total_consumed),
+        },
+        total_consumed,
+    ))
+}
+
+fn parse_directive_tag(
+    tag_name: TagName,
+    input: &str,
+    offset: usize,
+) -> Result<(Node, usize), ParseError> {
+    let tag_prefix_len = 1 + tag_name.len(); // "<tool", "<session", "<agent"
+
+    let tag_end = find_tag_end(input).ok_or_else(|| ParseError {
+        message: format!("unclosed <{}> opening tag", tag_name.as_str()),
+        span: Span::new(offset, offset + input.len().min(50)),
+    })?;
+
+    let is_self_closing = input[..tag_end].ends_with('/');
+    let attrs_str = if is_self_closing {
+        &input[tag_prefix_len..tag_end - 1]
+    } else {
+        &input[tag_prefix_len..tag_end]
+    };
+
+    let attrs = parse_attributes(attrs_str, offset + tag_prefix_len)?;
+    let kind = build_directive_kind(tag_name, &attrs, offset)?;
+
+    if is_self_closing {
+        let consumed = tag_end + 1;
+        return Ok((
+            Node::Directive {
+                kind,
+                children: Vec::new(),
+                span: Span::new(offset, offset + consumed),
+            },
+            consumed,
+        ));
+    }
+
+    let content_start = tag_end + 1;
+    let (content_end, close_tag_end) =
+        find_matching_close(tag_name, &input[content_start..], offset + content_start)?;
+
+    let content = &input[content_start..content_start + content_end];
+    let children = parse_nodes(content, offset + content_start)?;
+
+    let total_consumed = content_start + content_end + close_tag_end;
+    Ok((
+        Node::Directive {
+            kind,
             children,
             span: Span::new(offset, offset + total_consumed),
         },
@@ -191,17 +488,28 @@ fn parse_children_excluding_params(
                 nodes.push(Node::Text(input[pos..].to_string()));
                 break;
             }
-        } else if input[pos..].starts_with("<param") && is_tag_start(&input[pos..]) {
+        } else if detect_open_tag(&input[pos..]) == Some(TagName::Param) {
             // Skip param tags (already extracted)
             if let Some(close) = input[pos..].find("</param>") {
                 pos += close + 8;
             } else {
                 pos += 1;
             }
-        } else if input[pos..].starts_with("<skill") && is_tag_start(&input[pos..]) {
-            let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
-            nodes.push(node);
-            pos += consumed;
+        } else if let Some(tag) = detect_open_tag(&input[pos..]) {
+            match tag {
+                TagName::Skill => {
+                    let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
+                    nodes.push(node);
+                    pos += consumed;
+                }
+                TagName::Tool | TagName::Session | TagName::Agent => {
+                    let (node, consumed) =
+                        parse_directive_tag(tag, &input[pos..], base_offset + pos)?;
+                    nodes.push(node);
+                    pos += consumed;
+                }
+                TagName::Param => unreachable!(), // handled above
+            }
         } else {
             let text_end = find_next_tag_or_param(&input[pos..]).unwrap_or(input.len() - pos);
             if text_end > 0 {
@@ -222,12 +530,7 @@ fn find_next_tag_or_param(s: &str) -> Option<usize> {
     let mut i = 0;
     while i < s.len() {
         if s[i..].starts_with('<') {
-            if (s[i..].starts_with("<skill") || s[i..].starts_with("<param"))
-                && is_tag_start(&s[i..])
-            {
-                return Some(i);
-            }
-            if s[i..].starts_with("</skill>") || s[i..].starts_with("</param>") {
+            if detect_open_tag(&s[i..]).is_some() || detect_close_tag(&s[i..]).is_some() {
                 return Some(i);
             }
             if s[i..].starts_with("<!--") {
@@ -244,7 +547,7 @@ fn extract_params(input: &str, base_offset: usize) -> Result<(Vec<Param>, ()), P
     let mut pos = 0;
 
     while pos < input.len() {
-        if input[pos..].starts_with("<param") && is_tag_start(&input[pos..]) {
+        if detect_open_tag(&input[pos..]) == Some(TagName::Param) {
             let param_start = pos;
             // Find end of opening tag
             let tag_end = input[pos..].find('>').ok_or_else(|| ParseError {
@@ -308,12 +611,18 @@ fn find_tag_end(input: &str) -> Option<usize> {
     None
 }
 
-fn find_matching_close(input: &str, offset: usize) -> Result<(usize, usize), ParseError> {
+fn find_matching_close(
+    tag_name: TagName,
+    input: &str,
+    offset: usize,
+) -> Result<(usize, usize), ParseError> {
     let mut depth = 1;
     let mut pos = 0;
+    let close_str = format!("</{}>", tag_name.as_str());
+    let close_len = close_str.len();
 
     while pos < input.len() {
-        if input[pos..].starts_with("<skill") && is_tag_start(&input[pos..]) {
+        if detect_open_tag(&input[pos..]) == Some(tag_name) {
             // Check if self-closing
             if let Some(tag_end) = find_tag_end(&input[pos..]) {
                 if input[pos..pos + tag_end].ends_with('/') {
@@ -322,20 +631,24 @@ fn find_matching_close(input: &str, offset: usize) -> Result<(usize, usize), Par
                 }
             }
             depth += 1;
-            pos += 6;
-        } else if input[pos..].starts_with("</skill>") {
+            pos += 1 + tag_name.len(); // skip past "<tagname"
+        } else if input[pos..].starts_with(&close_str) {
             depth -= 1;
             if depth == 0 {
-                return Ok((pos, 8)); // 8 = len("</skill>")
+                return Ok((pos, close_len));
             }
-            pos += 8;
+            pos += close_len;
         } else {
             pos += 1;
         }
     }
 
     Err(ParseError {
-        message: "unclosed <skill> tag — no matching </skill>".to_string(),
+        message: format!(
+            "unclosed <{}> tag — no matching {}",
+            tag_name.as_str(),
+            close_str
+        ),
         span: Span::new(offset, offset + input.len().min(50)),
     })
 }
@@ -509,6 +822,104 @@ fn build_node_kind(attrs: &HashMap<String, String>, offset: usize) -> Result<Nod
     }
 }
 
+fn parse_on_failure(
+    attrs: &HashMap<String, String>,
+    offset: usize,
+) -> Result<Option<FailureMode>, ParseError> {
+    attrs
+        .get("on-failure")
+        .map(|s| {
+            FailureMode::parse(s).ok_or_else(|| ParseError {
+                message: format!(
+                    "invalid on-failure value: '{s}' (expected halt, skip, or partial)"
+                ),
+                span: Span::new(offset, offset + 20),
+            })
+        })
+        .transpose()
+}
+
+fn build_directive_kind(
+    tag_name: TagName,
+    attrs: &HashMap<String, String>,
+    offset: usize,
+) -> Result<DirectiveKind, ParseError> {
+    match tag_name {
+        TagName::Tool => {
+            let name = attrs.get("name").cloned();
+            let allow = attrs.get("allow").cloned();
+            let deny = attrs.get("deny").cloned();
+
+            if name.is_none() && allow.is_none() && deny.is_none() {
+                return Err(ParseError {
+                    message: "<tool> requires at least one of: name, allow, or deny".to_string(),
+                    span: Span::new(offset, offset + 20),
+                });
+            }
+
+            if attrs.contains_key("on-failure") {
+                return Err(ParseError {
+                    message: "<tool> does not support 'on-failure' (it is a scope directive, not an execution unit)".to_string(),
+                    span: Span::new(offset, offset + 20),
+                });
+            }
+
+            Ok(DirectiveKind::Tool(ToolDirective { name, allow, deny }))
+        }
+        TagName::Session => {
+            let name = attrs.get("name").cloned();
+            let isolated = attrs
+                .get("isolated")
+                .map(|s| match s.as_str() {
+                    "true" => Ok(true),
+                    "false" => Ok(false),
+                    other => Err(ParseError {
+                        message: format!(
+                            "invalid isolated value: '{other}' (expected 'true' or 'false')"
+                        ),
+                        span: Span::new(offset, offset + 20),
+                    }),
+                })
+                .transpose()?;
+
+            Ok(DirectiveKind::Session(SessionDirective {
+                name,
+                isolated,
+                on_failure: parse_on_failure(attrs, offset)?,
+            }))
+        }
+        TagName::Agent => {
+            let name = attrs.get("name").cloned().ok_or_else(|| ParseError {
+                message: "<agent> requires 'name' attribute".to_string(),
+                span: Span::new(offset, offset + 20),
+            })?;
+            let model = attrs.get("model").cloned();
+            let mode = attrs
+                .get("mode")
+                .map(|s| {
+                    AgentMode::parse(s).ok_or_else(|| ParseError {
+                        message: format!(
+                            "invalid mode value: '{s}' (expected 'sync' or 'background')"
+                        ),
+                        span: Span::new(offset, offset + 20),
+                    })
+                })
+                .transpose()?;
+
+            Ok(DirectiveKind::Agent(AgentDirective {
+                name,
+                model,
+                mode,
+                on_failure: parse_on_failure(attrs, offset)?,
+            }))
+        }
+        _ => Err(ParseError {
+            message: format!("unexpected directive tag: <{}>", tag_name.as_str()),
+            span: Span::new(offset, offset + 20),
+        }),
+    }
+}
+
 fn decode_entities(input: &str) -> String {
     input
         .replace("&lt;", "<")
@@ -655,5 +1066,384 @@ mod tests {
             .unwrap_err()
             .message
             .contains("at least one of: interface, impl, or name"));
+    }
+
+    // --- Directive tag tests ---
+
+    #[test]
+    fn test_tool_with_name() {
+        let input = r#"<tool name="bash">run tests</tool>"#;
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.nodes.len(), 1);
+        match &doc.nodes[0] {
+            Node::Directive { kind, children, .. } => {
+                match kind {
+                    DirectiveKind::Tool(t) => {
+                        assert_eq!(t.name.as_deref(), Some("bash"));
+                        assert!(t.allow.is_none());
+                        assert!(t.deny.is_none());
+                    }
+                    _ => panic!("expected Tool directive"),
+                }
+                assert_eq!(children.len(), 1);
+                assert!(matches!(&children[0], Node::Text(t) if t == "run tests"));
+            }
+            _ => panic!("expected Directive node"),
+        }
+    }
+
+    #[test]
+    fn test_tool_with_allow() {
+        let input = r#"<tool allow="bash,grep">content</tool>"#;
+        let doc = parse(input).unwrap();
+        match &doc.nodes[0] {
+            Node::Directive {
+                kind: DirectiveKind::Tool(t),
+                ..
+            } => {
+                assert!(t.name.is_none());
+                assert_eq!(t.allow.as_deref(), Some("bash,grep"));
+            }
+            _ => panic!("expected Tool directive"),
+        }
+    }
+
+    #[test]
+    fn test_tool_with_deny() {
+        let input = r#"<tool deny="exec">content</tool>"#;
+        let doc = parse(input).unwrap();
+        match &doc.nodes[0] {
+            Node::Directive {
+                kind: DirectiveKind::Tool(t),
+                ..
+            } => {
+                assert_eq!(t.deny.as_deref(), Some("exec"));
+            }
+            _ => panic!("expected Tool directive"),
+        }
+    }
+
+    #[test]
+    fn test_tool_missing_attrs() {
+        let input = r#"<tool>content</tool>"#;
+        let result = parse(input);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .message
+            .contains("at least one of: name, allow, or deny"));
+    }
+
+    #[test]
+    fn test_session_basic() {
+        let input = r#"<session name="backend">work here</session>"#;
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.nodes.len(), 1);
+        match &doc.nodes[0] {
+            Node::Directive {
+                kind: DirectiveKind::Session(s),
+                children,
+                ..
+            } => {
+                assert_eq!(s.name.as_deref(), Some("backend"));
+                assert!(s.isolated.is_none());
+                assert_eq!(children.len(), 1);
+            }
+            _ => panic!("expected Session directive"),
+        }
+    }
+
+    #[test]
+    fn test_session_with_isolated() {
+        let input = r#"<session isolated="false">shared work</session>"#;
+        let doc = parse(input).unwrap();
+        match &doc.nodes[0] {
+            Node::Directive {
+                kind: DirectiveKind::Session(s),
+                ..
+            } => {
+                assert_eq!(s.isolated, Some(false));
+            }
+            _ => panic!("expected Session directive"),
+        }
+    }
+
+    #[test]
+    fn test_session_no_attrs() {
+        let input = r#"<session>anonymous session</session>"#;
+        let doc = parse(input).unwrap();
+        match &doc.nodes[0] {
+            Node::Directive {
+                kind: DirectiveKind::Session(s),
+                ..
+            } => {
+                assert!(s.name.is_none());
+                assert!(s.isolated.is_none());
+            }
+            _ => panic!("expected Session directive"),
+        }
+    }
+
+    #[test]
+    fn test_agent_basic() {
+        let input = r#"<agent name="reviewer">review code</agent>"#;
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.nodes.len(), 1);
+        match &doc.nodes[0] {
+            Node::Directive {
+                kind: DirectiveKind::Agent(a),
+                children,
+                ..
+            } => {
+                assert_eq!(a.name, "reviewer");
+                assert!(a.model.is_none());
+                assert!(a.mode.is_none());
+                assert_eq!(children.len(), 1);
+            }
+            _ => panic!("expected Agent directive"),
+        }
+    }
+
+    #[test]
+    fn test_agent_with_model_and_mode() {
+        let input = r#"<agent name="helper" model="gpt-4" mode="background">do work</agent>"#;
+        let doc = parse(input).unwrap();
+        match &doc.nodes[0] {
+            Node::Directive {
+                kind: DirectiveKind::Agent(a),
+                ..
+            } => {
+                assert_eq!(a.name, "helper");
+                assert_eq!(a.model.as_deref(), Some("gpt-4"));
+                assert_eq!(a.mode, Some(AgentMode::Background));
+            }
+            _ => panic!("expected Agent directive"),
+        }
+    }
+
+    #[test]
+    fn test_agent_missing_name() {
+        let input = r#"<agent model="gpt-4">work</agent>"#;
+        let result = parse(input);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("requires 'name'"));
+    }
+
+    #[test]
+    fn test_agent_invalid_mode() {
+        let input = r#"<agent name="x" mode="parallel">work</agent>"#;
+        let result = parse(input);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("invalid mode value"));
+    }
+
+    #[test]
+    fn test_self_closing_tool() {
+        let input = r#"<tool name="bash" />"#;
+        let doc = parse(input).unwrap();
+        match &doc.nodes[0] {
+            Node::Directive { children, .. } => {
+                assert!(children.is_empty());
+            }
+            _ => panic!("expected Directive node"),
+        }
+    }
+
+    #[test]
+    fn test_nested_skill_in_agent() {
+        let input = r#"<agent name="dev"><skill interface="lint">code</skill></agent>"#;
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.nodes.len(), 1);
+        match &doc.nodes[0] {
+            Node::Directive { children, .. } => {
+                assert_eq!(children.len(), 1);
+                assert!(matches!(&children[0], Node::Skill { .. }));
+            }
+            _ => panic!("expected Directive node"),
+        }
+    }
+
+    #[test]
+    fn test_nested_agent_in_tool_in_session() {
+        let input = r#"<session name="s1"><tool name="bash"><agent name="runner">go</agent></tool></session>"#;
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.nodes.len(), 1);
+        match &doc.nodes[0] {
+            Node::Directive {
+                kind: DirectiveKind::Session(_),
+                children,
+                ..
+            } => {
+                assert_eq!(children.len(), 1);
+                match &children[0] {
+                    Node::Directive {
+                        kind: DirectiveKind::Tool(_),
+                        children: inner,
+                        ..
+                    } => {
+                        assert_eq!(inner.len(), 1);
+                        assert!(matches!(
+                            &inner[0],
+                            Node::Directive {
+                                kind: DirectiveKind::Agent(_),
+                                ..
+                            }
+                        ));
+                    }
+                    _ => panic!("expected Tool directive"),
+                }
+            }
+            _ => panic!("expected Session directive"),
+        }
+    }
+
+    #[test]
+    fn test_mixed_text_and_directives() {
+        let input = r#"before <tool name="bash">middle</tool> after"#;
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.nodes.len(), 3);
+        assert!(matches!(&doc.nodes[0], Node::Text(t) if t == "before "));
+        assert!(matches!(&doc.nodes[1], Node::Directive { .. }));
+        assert!(matches!(&doc.nodes[2], Node::Text(t) if t == " after"));
+    }
+
+    #[test]
+    fn test_unclosed_directive_error() {
+        let input = r#"<agent name="x">no close"#;
+        let result = parse(input);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("unclosed"));
+    }
+
+    // ── <aml> root wrapper tests ──
+
+    #[test]
+    fn test_aml_root_with_version() {
+        let doc = parse(r#"<aml version="0.1"><skill name="x">body</skill></aml>"#).unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+        assert_eq!(doc.nodes.len(), 1);
+        assert!(matches!(&doc.nodes[0], Node::Skill { .. }));
+    }
+
+    #[test]
+    fn test_aml_root_with_whitespace_around() {
+        let doc =
+            parse("  \n<aml version=\"0.1\">\n  <skill name=\"x\">y</skill>\n</aml>\n  ").unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+    }
+
+    #[test]
+    fn test_aml_root_with_comments_around() {
+        let doc = parse("<!-- header -->\n<aml version=\"0.1\"><skill name=\"x\">y</skill></aml>\n<!-- footer -->").unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+    }
+
+    #[test]
+    fn test_fragment_mode_no_aml() {
+        let doc = parse(r#"<skill name="x">body</skill>"#).unwrap();
+        assert!(doc.version.is_none());
+        assert_eq!(doc.nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_aml_missing_version() {
+        let err = parse("<aml><skill name=\"x\">y</skill></aml>").unwrap_err();
+        assert!(
+            err.message.contains("version"),
+            "should require version: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_aml_unknown_attribute() {
+        let err = parse(r#"<aml version="0.1" encoding="utf-8"><skill name="x">y</skill></aml>"#)
+            .unwrap_err();
+        assert!(
+            err.message.contains("encoding"),
+            "should reject unknown attr: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_aml_text_before_error() {
+        let err =
+            parse(r#"some text <aml version="0.1"><skill name="x">y</skill></aml>"#).unwrap_err();
+        assert!(
+            err.message.contains("non-whitespace content before"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_aml_text_after_error() {
+        let err = parse(r#"<aml version="0.1"><skill name="x">y</skill></aml> trailing text"#)
+            .unwrap_err();
+        assert!(
+            err.message.contains("non-whitespace content after"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_aml_nested_error() {
+        let err =
+            parse(r#"<aml version="0.1"><aml version="0.2"><skill name="x">y</skill></aml></aml>"#)
+                .unwrap_err();
+        assert!(err.message.contains("nested"), "{}", err.message);
+    }
+
+    #[test]
+    fn test_aml_nested_in_skill_error() {
+        let err =
+            parse(r#"<aml version="0.1"><skill name="x"><aml version="0.2">y</aml></skill></aml>"#)
+                .unwrap_err();
+        assert!(err.message.contains("nested"), "{}", err.message);
+    }
+
+    #[test]
+    fn test_aml_self_closing() {
+        let doc = parse(r#"<aml version="0.1"/>"#).unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+        assert!(doc.nodes.is_empty());
+    }
+
+    #[test]
+    fn test_aml_unclosed_error() {
+        let err = parse(r#"<aml version="0.1"><skill name="x">y</skill>"#).unwrap_err();
+        assert!(
+            err.message.contains("unclosed") || err.message.contains("missing </aml>"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_aml_preserves_children() {
+        let doc = parse(
+            r#"<aml version="0.1">
+            <tool name="grep">
+                <skill name="search">find things</skill>
+            </tool>
+            <agent name="worker">do work</agent>
+        </aml>"#,
+        )
+        .unwrap();
+        assert_eq!(doc.version.as_deref(), Some("0.1"));
+        // Should have text + tool + text + agent + text nodes
+        let non_text: Vec<_> = doc
+            .nodes
+            .iter()
+            .filter(|n| !matches!(n, Node::Text(_)))
+            .collect();
+        assert_eq!(
+            non_text.len(),
+            2,
+            "should have tool + agent: {:?}",
+            non_text
+        );
     }
 }

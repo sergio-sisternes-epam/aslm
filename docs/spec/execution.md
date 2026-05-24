@@ -186,6 +186,109 @@ struct ExecutionContext {
 }
 ```
 
+## Directive Execution
+
+Directive nodes (`<tool>`, `<session>`, `<agent>`) participate in the execution
+tree but behave differently from skill invocations.
+
+### `<tool>` — Scope Directive
+
+The `<tool>` tag constrains which tools are available to descendants. It does
+**not** execute anything itself. Children execute normally under the tool
+constraint; results flow upward as text.
+
+```xml
+<tool name="bash">
+  <skill interface="run-tests">test suite</skill>
+</tool>
+```
+
+The executor processes `<tool>` as pass-through: children execute, results
+concatenate. The runtime harness enforces the tool constraint.
+
+### `<session>` — Execution Directive
+
+The `<session>` tag runs its children in a separate execution context. The
+result is the concatenated output of the children, injected in place of the
+`<session>` tag.
+
+```xml
+<session name="backend" isolated="true">
+  <skill interface="deploy">backend service</skill>
+</session>
+```
+
+In isolated mode (default), child execution does not share state with the
+parent. In non-isolated mode (`isolated="false"`), state may be shared.
+
+### `<agent>` — Execution Directive
+
+The `<agent>` tag delegates execution to a subagent. The subagent receives
+the content as its prompt and returns a result that replaces the tag.
+
+```xml
+<agent name="reviewer" model="gpt-4">
+  <skill interface="code-review">fn main() {}</skill>
+</agent>
+```
+
+In `mode="sync"` (default), execution blocks until the agent completes.
+In `mode="background"`, the agent runs asynchronously; the tag is replaced
+by a placeholder or the result is delivered out-of-band.
+
+### Directive Failure
+
+Directives support the `on-failure` attribute on `<session>` and `<agent>` tags.
+This controls how child failures propagate:
+
+- `on-failure="halt"` (default) — any child failure propagates immediately,
+  halting the directive and returning an error to the parent.
+- `on-failure="skip"` — child failures are silently suppressed; the directive
+  produces output only from successful children.
+- `on-failure="partial"` — child failures are captured inline as
+  `[DIRECTIVE FAILED: <error>]` markers; execution continues.
+
+The `<tool>` tag does **not** support `on-failure` because it is a scope
+constraint, not an execution unit — it has nothing to "fail" on its own.
+
+```xml
+<session name="resilient" on-failure="skip">
+  <skill interface="flaky-service">request</skill>
+</session>
+
+<agent name="reviewer" on-failure="partial">
+  <skill interface="code-review">code</skill>
+</agent>
+```
+
+### Tool Constraint Composition
+
+Nested `<tool>` directives compose **monotonically** — inner scopes can only
+further restrict, never widen, the available tool set.
+
+**Composition rules:**
+
+| Pattern | Rule | Example |
+|---|---|---|
+| Allow ∩ Allow | Intersection of allow-lists | `allow="a,b,c"` → `allow="b,c,d"` → effective: `{b,c}` |
+| Deny ∪ Deny | Union of deny-lists | `deny="a"` → `deny="b"` → effective deny: `{a,b}` |
+| Allow + Deny | Allow first, then deny removes | `allow="a,b,c"` → `deny="b"` → effective: `{a,c}` |
+| Deny beats Allow | A tool denied at any ancestor is permanently denied | `deny="bash"` → `allow="bash,grep"` → effective: `{grep}` |
+
+**Validator behaviour:** The validator emits **warnings** (not errors) when an
+inner `<tool>` requests tools that are denied or absent at an ancestor level.
+These warnings are advisory — the runtime may have legitimate reasons for
+seemingly contradictory constraints.
+
+```xml
+<!-- Valid but produces a warning: web_search not in ancestor's allow-list -->
+<tool allow="grep,view,bash">
+  <tool allow="grep,web_search">
+    <skill interface="search">query</skill>
+  </tool>
+</tool>
+```
+
 ### Depth limit
 
 To prevent infinite recursion (e.g. a skill that emits AML which gets re-parsed),

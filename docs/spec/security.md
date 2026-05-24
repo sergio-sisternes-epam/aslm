@@ -145,6 +145,68 @@ registry.deny_source("apm:*");  // deny everything else
 Skills from untrusted sources are treated as if they have no capabilities
 (effectively `pure` only).
 
+## Directive Security
+
+### Tool Constraints
+
+The `<tool>` directive restricts tool access for descendants. It can only
+**narrow** access — never expand it beyond what the host policy permits.
+
+```xml
+<tool allow="bash,grep">
+  <!-- Skills in this scope can only use bash and grep -->
+  <skill interface="search">find files</skill>
+</tool>
+```
+
+If a tool constraint requests a tool denied by the host policy, execution
+fails with `AuthorisationError::ToolDenied`.
+
+#### The `bash` Loophole
+
+> **Security note:** The `bash` tool is effectively a superuser tool. When
+> `bash` is in an allow-list, an agent can bypass other tool restrictions
+> by using shell commands instead — for example, `sed -i` substitutes for
+> `edit`, `curl` substitutes for `web_fetch`, and arbitrary file operations
+> are possible.
+>
+> **Recommendations for runtime implementers:**
+> - Consider whether `bash` should be allowed at all in security-sensitive
+>   contexts.
+> - If `bash` is required, consider a sandboxed bash with filesystem
+>   restrictions, network isolation, or command whitelisting.
+> - A read-only reviewer agent should use `allow="grep,view"` without
+>   `bash` to enforce a genuine read-only posture.
+
+#### Nested Tool Constraint Composition
+
+Nested `<tool>` directives compose monotonically. The fundamental invariant
+is: **inner scopes can only further restrict, never widen, the tool set.**
+
+- Allow-lists **intersect**: a tool must be allowed at every level.
+- Deny-lists **union**: a tool denied at any level is denied everywhere below.
+- **Deny always beats allow**: an inner `allow` cannot reinstate a tool that
+  an ancestor `deny` removed.
+
+This model mirrors OS security: a child process cannot grant itself privileges
+that the parent did not possess.
+
+### Session Isolation
+
+The `<session>` directive creates an execution boundary. In isolated mode
+(default), the child session:
+- Cannot access the parent's execution state.
+- Cannot modify the parent's registry.
+- Has its own execution trace (linked to the parent trace).
+
+### Agent Delegation
+
+The `<agent>` directive delegates to a subagent. Security implications:
+- The subagent name must resolve against the host's agent registry.
+- The subagent inherits the parent's capability constraints by default.
+- `model` is a request — the host may override or deny it.
+- `mode="background"` must be permitted by the host policy.
+
 ## Audit Trail
 
 Every execution produces an audit record:
@@ -166,3 +228,6 @@ This enables post-hoc security review and compliance auditing.
 | Compromised package | Registry trust + package provenance |
 | Infinite recursion DoS | Depth limit (default 16) |
 | Resource exhaustion | Timeout attribute + global execution budget |
+| Tool constraint bypass | `<tool>` can only narrow, never expand host policy |
+| Unauthorised agent spawning | Agent names resolved against host registry |
+| Session state leakage | Isolated sessions share no state by default |

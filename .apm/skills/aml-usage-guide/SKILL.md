@@ -64,7 +64,7 @@ Required: `define="implementation"`, `name`, and `implements`.
 | `language` | Invocation, ImplDef | Language hint for resolution |
 | `framework` | Invocation, ImplDef | Framework hint for resolution |
 | `retries` | Invocation | Max retry attempts (default: 0) |
-| `on-failure` | Invocation | `"halt"` (default), `"skip"`, `"partial"` |
+| `on-failure` | Invocation, SessionDirective, AgentDirective | `"halt"` (default), `"skip"`, `"partial"` |
 | `policy` | Invocation | `"bottom-up"` (default), `"wrapper"`, `"sequential"` |
 
 ## Parameters
@@ -107,17 +107,117 @@ Here `fetch-url` runs first, its output becomes the scope for `summarise`.
 </skill>
 ```
 
+## Document Root (Optional)
+
+Wrap content in an `<aml>` tag to declare the version:
+
+```xml
+<aml version="0.1">
+  <skill interface="analyse">scan the codebase</skill>
+</aml>
+```
+
+The `<aml>` wrapper is **optional**. When omitted, tags are extracted from
+arbitrary text (fragment mode). When present:
+- `version` is required
+- Only whitespace/comments allowed outside the wrapper
+- Cannot be nested
+
+## Directives
+
+AML has three directive tags that control *how* content is executed:
+
+### `<tool>` — Tool Constraints
+
+Restrict which tools are available within a scope:
+
+```xml
+<tool allow="bash,grep">
+  <skill interface="search">find files</skill>
+</tool>
+```
+
+Attributes: `name` (single tool), `allow` (whitelist), `deny` (blacklist).
+`allow` and `deny` are mutually exclusive. At least one must be present.
+
+### `<session>` — Session Isolation
+
+Execute content in a separate session:
+
+```xml
+<session name="backend" isolated="true">
+  <skill interface="deploy">deploy service</skill>
+</session>
+```
+
+Attributes: `name` (optional), `isolated` (optional, default "true"),
+`on-failure` (optional: "halt"/"skip"/"partial").
+
+### `<agent>` — Subagent Delegation
+
+Delegate execution to a subagent:
+
+```xml
+<agent name="reviewer" model="gpt-4" mode="sync">
+  <skill interface="code-review">fn main() {}</skill>
+</agent>
+```
+
+Attributes: `name` (required), `model` (optional), `mode` (optional: "sync"/"background"),
+`on-failure` (optional: "halt"/"skip"/"partial").
+
+### Directive Nesting
+
+Directives nest freely with each other and with `<skill>`:
+
+```xml
+<agent name="dev">
+  <tool name="bash">
+    <skill interface="test">run tests</skill>
+  </tool>
+</agent>
+```
+
 ## Failure Handling
 
 ```xml
 <skill interface="flaky-service" retries="3" on-failure="skip">
   Call the service.
 </skill>
+
+<!-- on-failure also works on session and agent directives -->
+<session name="best-effort" on-failure="skip">
+  <skill interface="optional">may fail</skill>
+</session>
+
+<agent name="reviewer" on-failure="partial">
+  <skill interface="review">code</skill>
+</agent>
 ```
 
 - `halt`: stop execution on failure (default)
-- `skip`: silently skip failed skill
+- `skip`: silently skip failed skill/directive
 - `partial`: inject error marker and continue
+
+## Tool Constraint Composition
+
+Nested `<tool>` directives compose monotonically (inner can only restrict):
+
+```xml
+<tool allow="grep,view,bash">
+  <tool allow="grep,view">
+    <!-- Only grep and view here — bash was narrowed out -->
+  </tool>
+</tool>
+```
+
+- Allow ∩ Allow: intersection
+- Deny ∪ Deny: union
+- Deny beats Allow: a tool denied at any ancestor is permanently denied
+
+> **Warning:** `bash` is a superuser tool — it can bypass file-level
+> tool constraints via shell commands. Prefer `allow="grep,view"` for
+> read-only contexts.
 
 ## Rules
 
@@ -126,6 +226,10 @@ Here `fetch-url` runs first, its output becomes the scope for `summarise`.
 3. **Results are escaped** — skill output is never re-parsed as AML
 4. **Content is the scope** — everything between open/close tags is what the skill sees
 5. **Definitions don't execute** — they only register capabilities
+6. **Directives don't contain definitions** — definitions inside directives are invalid
+7. **Definitions don't contain directives** — directive tags inside definition bodies are invalid
+8. **Tool constraints only narrow** — `<tool>` cannot expand access beyond host policy
+9. **Tool composition is monotonic** — nested `<tool>` tags intersect allows and union denies
 
 ## When NOT to use AML
 

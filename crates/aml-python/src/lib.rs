@@ -5,7 +5,7 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use aml_core::ast::{Node, NodeKind};
+use aml_core::ast::{DirectiveKind, Node, NodeKind};
 use aml_core::executor::ExecutionContext;
 use aml_core::registry::SkillRegistry as RustRegistry;
 
@@ -68,6 +68,37 @@ impl Document {
                         .or(name.as_deref())
                         .unwrap_or("unknown");
                     Some(target.to_string())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Get all directive descriptions.
+    fn directives(&self) -> Vec<String> {
+        self.inner
+            .directives()
+            .filter_map(|n| match n {
+                Node::Directive { kind, .. } => {
+                    let desc = match kind {
+                        DirectiveKind::Tool(t) => {
+                            let target = t
+                                .name
+                                .as_deref()
+                                .or(t.allow.as_deref())
+                                .or(t.deny.as_deref())
+                                .unwrap_or("unknown");
+                            format!("tool:{target}")
+                        }
+                        DirectiveKind::Session(s) => {
+                            let name = s.name.as_deref().unwrap_or("anonymous");
+                            format!("session:{name}")
+                        }
+                        DirectiveKind::Agent(a) => {
+                            format!("agent:{}", a.name)
+                        }
+                    };
+                    Some(desc)
                 }
                 _ => None,
             })

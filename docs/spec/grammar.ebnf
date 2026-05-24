@@ -1,7 +1,7 @@
 # AML Formal Grammar (EBNF)
 
-# A document is arbitrary text interspersed with skill tags.
-Document       ::= (Text | SkillNode)*
+# A document is arbitrary text interspersed with skill and directive tags.
+Document       ::= (Text | SkillNode | DirectiveNode)*
 
 # Skill nodes come in three mutually exclusive forms:
 SkillNode      ::= Invocation | InterfaceDef | ImplementationDef
@@ -28,7 +28,7 @@ FrameworkAttr  ::= 'framework' '=' QuotedString
 RetriesAttr    ::= 'retries' '=' QuotedString    # must parse as unsigned integer
 TimeoutAttr    ::= 'timeout' '=' QuotedString    # must parse as duration (e.g. "30s")
 
-InvocationBody ::= (Text | Param | SkillNode)*   # supports nesting + mixed content
+InvocationBody ::= (Text | Param | SkillNode | DirectiveNode)*   # supports nesting + mixed content
 
 # --- PARAMETERS ---
 Param          ::= '<param' 'name' '=' QuotedString '>' ParamValue '</param>'
@@ -57,6 +57,54 @@ ImplementationDef ::= '<skill' 'define' '=' '"implementation"'
 
 ImplDefAttrs   ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
 
+# --- DIRECTIVE NODES ---
+# Directives instruct the runtime about execution environment.
+# They are NOT skill definitions or invocations.
+DirectiveNode  ::= ToolDirective | SessionDirective | AgentDirective
+
+# --- TOOL DIRECTIVE ---
+# Constrains which tools are available within the scope.
+# At least one of: name, allow, deny.
+# allow and deny are mutually exclusive.
+ToolDirective  ::= '<tool' ToolAttrs '>' DirectiveBody '</tool>'
+                 | '<tool' ToolAttrs '/>'
+ToolAttrs      ::= (ToolNameAttr | AllowAttr | DenyAttr)+
+ToolNameAttr   ::= 'name' '=' QuotedString
+AllowAttr      ::= 'allow' '=' QuotedString       # comma-separated tool names
+DenyAttr       ::= 'deny' '=' QuotedString        # comma-separated tool names
+
+# --- SESSION DIRECTIVE ---
+# Executes enclosed content in a separate session.
+SessionDirective ::= '<session' SessionAttrs? '>' DirectiveBody '</session>'
+                   | '<session' SessionAttrs? '/>'
+SessionAttrs     ::= (SessionNameAttr | IsolatedAttr | OnFailureAttr)*
+SessionNameAttr  ::= 'name' '=' QuotedString
+IsolatedAttr     ::= 'isolated' '=' QuotedString  # "true" or "false"
+
+# --- AGENT DIRECTIVE ---
+# Delegates enclosed content to a subagent.
+# name is required.
+AgentDirective   ::= '<agent' AgentAttrs '>' DirectiveBody '</agent>'
+                   | '<agent' AgentAttrs '/>'
+AgentAttrs       ::= AgentNameAttr AgentOptAttrs*
+AgentNameAttr    ::= 'name' '=' QuotedString
+AgentOptAttrs    ::= ModelAttr | ModeAttr | OnFailureAttr
+ModelAttr        ::= 'model' '=' QuotedString
+ModeAttr         ::= 'mode' '=' QuotedString      # "sync" or "background"
+
+# Directive body may contain any AML content.
+DirectiveBody  ::= (Text | SkillNode | DirectiveNode)*
+
+# Shared attribute used by invocations, sessions, and agents.
+OnFailureAttr  ::= 'on-failure' '=' QuotedString  # "halt", "skip", or "partial"
+
+# --- TOOL CONSTRAINT COMPOSITION ---
+# Nested <tool> directives compose monotonically:
+#   - allow-lists intersect: inner ∩ outer
+#   - deny-lists union: inner ∪ outer
+#   - deny always beats allow (a tool denied at any ancestor is permanently denied)
+#   - inner scopes can only further restrict, never widen, the tool set
+
 # --- ATTRIBUTE VALIDATION RULES ---
 # These combinations are INVALID and must be rejected:
 #   - define + interface (definition is not invocation)
@@ -68,13 +116,19 @@ ImplDefAttrs   ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
 #   - define="interface" without name
 #   - define="implementation" without name or implements
 #   - Invocation without any of: interface, impl, name
+#   - <tool> with both allow and deny
+#   - <tool> without any of: name, allow, deny
+#   - <agent> without name
+#   - Directives inside definition bodies
 
 # --- LEXICAL RULES ---
 QuotedString   ::= '"' [^"]* '"'                  # double-quoted only
                  | "'" [^']* "'"                  # single-quoted also allowed
 
 Text           ::= [^<]+                          # any content that is not a tag open
-                 | '<' (?! 'skill' | '/skill' | 'param' | '/param')  # literal '<' not part of a tag
+                 | '<' (?! 'skill' | '/skill' | 'param' | '/param'
+                       | 'tool' | '/tool' | 'session' | '/session'
+                       | 'agent' | '/agent')       # literal '<' not part of a tag
 
 # --- ESCAPING ---
 # Within Text and ParamValue, the following escape sequences are recognised:

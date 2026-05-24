@@ -5,17 +5,21 @@ description: EBNF grammar for the AML language.
 
 ## Overview
 
-AML uses XML-like `<skill>` tags embedded in arbitrary text. The grammar defines three mutually exclusive node types determined by the presence of the `define` attribute.
+AML uses XML-like tags embedded in arbitrary text. The grammar defines skill nodes (three mutually exclusive types determined by the `define` attribute) and directive nodes (`<tool>`, `<session>`, `<agent>`).
 
 ## Node Types
 
 ```
-Document       ::= (SkillNode | Text)*
+Document       ::= (SkillNode | DirectiveNode | Text)*
 SkillNode      ::= Invocation | InterfaceDefn | ImplDefn
+DirectiveNode  ::= ToolDirective | SessionDirective | AgentDirective
 Invocation     ::= '<skill' InvocationAttrs '>' Content '</skill>'
                  | '<skill' InvocationAttrs '/>'
 InterfaceDefn  ::= '<skill' 'define="interface"' 'name=' QuotedStr InterfaceAttrs '>' Content '</skill>'
 ImplDefn       ::= '<skill' 'define="implementation"' 'name=' QuotedStr 'implements=' QuotedStr ImplAttrs '>' Content '</skill>'
+ToolDirective  ::= '<tool' ToolAttrs '>' Content '</tool>' | '<tool' ToolAttrs '/>'
+SessionDirective ::= '<session' SessionAttrs? '>' Content '</session>' | '<session' SessionAttrs? '/>'
+AgentDirective ::= '<agent' AgentAttrs '>' Content '</agent>' | '<agent' AgentAttrs '/>'
 ```
 
 ## Attributes
@@ -24,12 +28,15 @@ ImplDefn       ::= '<skill' 'define="implementation"' 'name=' QuotedStr 'impleme
 InvocationAttrs ::= (InterfaceAttr | ImplAttr | NameAttr | LangAttr | FrameworkAttr | RetriesAttr | PolicyAttr | OnFailureAttr | TimeoutAttr)*
 InterfaceAttrs  ::= DescriptionAttr?
 ImplAttrs       ::= (LangAttr | FrameworkAttr | DescriptionAttr)*
+ToolAttrs       ::= (NameAttr | AllowAttr | DenyAttr)+
+SessionAttrs    ::= (NameAttr | IsolatedAttr)*
+AgentAttrs      ::= NameAttr (ModelAttr | ModeAttr)*
 ```
 
 ## Content Model
 
 ```
-Content    ::= (SkillNode | ParamNode | Text)*
+Content    ::= (SkillNode | DirectiveNode | ParamNode | Text)*
 ParamNode  ::= '<param' 'name=' QuotedStr '>' ParamValue '</param>'
 ParamValue ::= Text
 Text       ::= (Char - '<')* | EscapedChar

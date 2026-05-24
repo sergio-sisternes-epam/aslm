@@ -20,7 +20,12 @@ This document is the canonical reference for attribute semantics.
 | `retries` | uint | 0-10 | 0 | Invocation | No |
 | `timeout` | duration | e.g. "30s", "5m", "1h" | no timeout | Invocation | No |
 | `policy` | enum | `"bottom-up"`, `"wrapper"`, `"sequential"` | `"bottom-up"` | Invocation | No |
-| `on-failure` | enum | `"halt"`, `"skip"`, `"partial"` | `"halt"` | Invocation | No |
+| `on-failure` | enum | `"halt"`, `"skip"`, `"partial"` | `"halt"` | Invocation, SessionDirective, AgentDirective | No |
+| `allow` | string | comma-separated tool names | — | ToolDirective | No |
+| `deny` | string | comma-separated tool names | — | ToolDirective | No |
+| `isolated` | boolean | `"true"`, `"false"` | `"true"` | SessionDirective | No |
+| `model` | string | free text | — | AgentDirective | No |
+| `mode` | enum | `"sync"`, `"background"` | `"sync"` | AgentDirective | No |
 
 ## Mutual Exclusivity Rules
 
@@ -36,6 +41,7 @@ The following combinations are **invalid** and MUST be rejected during validatio
 | `define` + `on-failure` | Definitions are not executable |
 | `name` + `interface` (on Invocation) | Use one resolution mode: name OR interface |
 | `name` + `impl` (on Invocation) | Use one resolution mode: name OR impl |
+| `allow` + `deny` (on ToolDirective) | Use one constraint mode: whitelist OR blacklist |
 
 ## Co-occurrence Rules
 
@@ -62,6 +68,19 @@ if "define" is present:
 else:
     → Invocation (must have at least one of: interface, impl, name)
 ```
+
+## Directive Node Types
+
+Directive tags are determined by tag name, not by attributes:
+
+| Tag | Node type | Required attributes |
+|---|---|---|
+| `<tool>` | ToolDirective | At least one of: `name`, `allow`, `deny` |
+| `<session>` | SessionDirective | None (all optional) |
+| `<agent>` | AgentDirective | `name` |
+
+Directives are **not** skill nodes. They instruct the runtime about execution
+environment — tool constraints, session isolation, or subagent delegation.
 
 ## Name Format
 
