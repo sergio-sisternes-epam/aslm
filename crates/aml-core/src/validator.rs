@@ -1,4 +1,7 @@
-use crate::ast::{DirectiveKind, Node, NodeKind, Span, ToolDirective};
+use crate::ast::{
+    DirectiveKind, IoDecl, Node, NodeDecl, NodeKind, NodeType, ParamDecl, ReturnDecl, SkillRef,
+    Span, ToolConstraint, ToolDirective,
+};
 
 /// Validation error with source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -284,7 +287,16 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                 });
             }
         }
-        NodeKind::InterfaceDefinition { name, .. } => {
+        NodeKind::InterfaceDefinition {
+            name,
+            params,
+            returns,
+            reads,
+            writes,
+            skill_refs,
+            tool_constraints,
+            ..
+        } => {
             if name.is_empty() {
                 errors.push(ValidationError {
                     message: "interface definition must have a non-empty name".to_string(),
@@ -292,9 +304,16 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                     severity: Severity::Error,
                 });
             }
+            validate_interface_declarations(params, returns, reads, writes, span, errors);
+            validate_skill_refs(skill_refs, span, errors);
+            validate_tool_constraints(tool_constraints, span, errors);
         }
         NodeKind::ImplementationDefinition {
-            name, implements, ..
+            name,
+            implements,
+            nodes,
+            skill_refs,
+            ..
         } => {
             if name.is_empty() {
                 errors.push(ValidationError {
@@ -311,6 +330,324 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                     severity: Severity::Error,
                 });
             }
+            validate_node_declarations(nodes, span, errors);
+            validate_skill_refs(skill_refs, span, errors);
+        }
+    }
+}
+
+/// Valid parameter types for typed declarations.
+const VALID_PARAM_TYPES: &[&str] = &["string", "enum", "number", "boolean", "path", "list"];
+
+fn validate_interface_declarations(
+    params: &[ParamDecl],
+    returns: &[ReturnDecl],
+    reads: &Option<IoDecl>,
+    writes: &Option<IoDecl>,
+    span: Span,
+    errors: &mut Vec<ValidationError>,
+) {
+    // Validate param declarations
+    let mut seen_param_names = Vec::new();
+    for p in params {
+        // Unique param names
+        if seen_param_names.contains(&p.name) {
+            errors.push(ValidationError {
+                message: format!("duplicate param name '{}' in interface definition", p.name),
+                span: Some(p.span),
+                severity: Severity::Error,
+            });
+        } else {
+            seen_param_names.push(p.name.clone());
+        }
+
+        // Empty name
+        if p.name.is_empty() {
+            errors.push(ValidationError {
+                message: "param declaration must have a non-empty name".to_string(),
+                span: Some(p.span),
+                severity: Severity::Error,
+            });
+        }
+
+        // Valid type
+        if let Some(ref t) = p.param_type {
+            if !VALID_PARAM_TYPES.contains(&t.as_str()) {
+                errors.push(ValidationError {
+                    message: format!(
+                        "invalid param type '{}' (expected one of: {})",
+                        t,
+                        VALID_PARAM_TYPES.join(", ")
+                    ),
+                    span: Some(p.span),
+                    severity: Severity::Error,
+                });
+            }
+        }
+
+        let is_enum = p.param_type.as_deref() == Some("enum");
+
+        // Enum requires values
+        if is_enum && p.values.is_none() {
+            errors.push(ValidationError {
+                message: format!(
+                    "param '{}' has type 'enum' but no 'values' attribute",
+                    p.name
+                ),
+                span: Some(p.span),
+                severity: Severity::Error,
+            });
+        }
+
+        // Non-enum must not have values
+        if !is_enum && p.values.is_some() {
+            errors.push(ValidationError {
+                message: format!(
+                    "param '{}' has 'values' attribute but type is not 'enum'",
+                    p.name
+                ),
+                span: Some(p.span),
+                severity: Severity::Error,
+            });
+        }
+
+        // Validate enum values are non-empty
+        if let Some(ref values) = p.values {
+            let entries: Vec<&str> = values.split('|').map(str::trim).collect();
+            if entries.iter().any(|v| v.is_empty()) {
+                errors.push(ValidationError {
+                    message: format!("param '{}' has empty entries in 'values'", p.name),
+                    span: Some(p.span),
+                    severity: Severity::Warning,
+                });
+            }
+        }
+
+        // required + default is a warning
+        if p.required == Some(true) && p.default.is_some() {
+            errors.push(ValidationError {
+                message: format!("param '{}' is required but has a default value", p.name),
+                span: Some(p.span),
+                severity: Severity::Warning,
+            });
+        }
+
+        // Default must be a valid enum value
+        if let (Some(ref default), Some(ref values)) = (&p.default, &p.values) {
+            let entries: Vec<&str> = values.split('|').map(str::trim).collect();
+            if !entries.contains(&default.as_str()) {
+                errors.push(ValidationError {
+                    message: format!(
+                        "param '{}' default '{}' is not one of the allowed values: {}",
+                        p.name, default, values
+                    ),
+                    span: Some(p.span),
+                    severity: Severity::Error,
+                });
+            }
+        }
+
+        // Default type compatibility for boolean
+        if p.param_type.as_deref() == Some("boolean") {
+            if let Some(ref default) = p.default {
+                if default != "true" && default != "false" {
+                    errors.push(ValidationError {
+                        message: format!(
+                            "param '{}' has type 'boolean' but default '{}' is not 'true' or 'false'",
+                            p.name, default
+                        ),
+                        span: Some(p.span),
+                        severity: Severity::Error,
+                    });
+                }
+            }
+        }
+
+        // Default type compatibility for number
+        if p.param_type.as_deref() == Some("number") {
+            if let Some(ref default) = p.default {
+                if default.parse::<f64>().is_err() {
+                    errors.push(ValidationError {
+                        message: format!(
+                            "param '{}' has type 'number' but default '{}' is not a valid number",
+                            p.name, default
+                        ),
+                        span: Some(p.span),
+                        severity: Severity::Error,
+                    });
+                }
+            }
+        }
+    }
+
+    // Validate return declarations
+    let mut seen_return_names = Vec::new();
+    for r in returns {
+        if seen_return_names.contains(&r.name) {
+            errors.push(ValidationError {
+                message: format!(
+                    "duplicate returns name '{}' in interface definition",
+                    r.name
+                ),
+                span: Some(r.span),
+                severity: Severity::Error,
+            });
+        } else {
+            seen_return_names.push(r.name.clone());
+        }
+
+        if r.name.is_empty() {
+            errors.push(ValidationError {
+                message: "returns declaration must have a non-empty name".to_string(),
+                span: Some(r.span),
+                severity: Severity::Error,
+            });
+        }
+
+        if let Some(ref t) = r.return_type {
+            if !VALID_PARAM_TYPES.contains(&t.as_str()) {
+                errors.push(ValidationError {
+                    message: format!(
+                        "invalid returns type '{}' (expected one of: {})",
+                        t,
+                        VALID_PARAM_TYPES.join(", ")
+                    ),
+                    span: Some(r.span),
+                    severity: Severity::Error,
+                });
+            }
+        }
+
+        let is_enum = r.return_type.as_deref() == Some("enum");
+
+        if is_enum && r.values.is_none() {
+            errors.push(ValidationError {
+                message: format!(
+                    "returns '{}' has type 'enum' but no 'values' attribute",
+                    r.name
+                ),
+                span: Some(r.span),
+                severity: Severity::Error,
+            });
+        }
+
+        if !is_enum && r.values.is_some() {
+            errors.push(ValidationError {
+                message: format!(
+                    "returns '{}' has 'values' attribute but type is not 'enum'",
+                    r.name
+                ),
+                span: Some(r.span),
+                severity: Severity::Error,
+            });
+        }
+    }
+
+    // Validate I/O declarations have non-empty patterns
+    if let Some(ref io) = reads {
+        if io.patterns.is_empty() {
+            errors.push(ValidationError {
+                message: "reads declaration has no patterns".to_string(),
+                span: Some(io.span),
+                severity: Severity::Warning,
+            });
+        }
+    }
+    if let Some(ref io) = writes {
+        if io.patterns.is_empty() {
+            errors.push(ValidationError {
+                message: "writes declaration has no patterns".to_string(),
+                span: Some(io.span),
+                severity: Severity::Warning,
+            });
+        }
+    }
+
+    // Multiple reads/writes are prevented at the parser level (last one wins),
+    // but we validate the presence is meaningful.
+    let _ = span; // used in the destructuring match arm
+}
+
+/// Validate skill ref declarations inside an interface body.
+fn validate_skill_refs(skill_refs: &[SkillRef], _span: Span, errors: &mut Vec<ValidationError>) {
+    for sr in skill_refs {
+        if sr.ref_name.is_empty() {
+            errors.push(ValidationError {
+                message: "skill ref must have a non-empty name".to_string(),
+                span: Some(sr.span),
+                severity: Severity::Error,
+            });
+        }
+    }
+}
+
+/// Validate tool constraint declarations inside an interface body.
+fn validate_tool_constraints(
+    constraints: &[ToolConstraint],
+    _span: Span,
+    errors: &mut Vec<ValidationError>,
+) {
+    for tc in constraints {
+        if !tc.allow.is_empty() && !tc.deny.is_empty() {
+            errors.push(ValidationError {
+                message: "<tool> in interface cannot have both 'allow' and 'deny'".to_string(),
+                span: Some(tc.span),
+                severity: Severity::Error,
+            });
+        }
+        if tc.allow.is_empty() && tc.deny.is_empty() {
+            errors.push(ValidationError {
+                message: "<tool> in interface must have 'allow' or 'deny'".to_string(),
+                span: Some(tc.span),
+                severity: Severity::Error,
+            });
+        }
+    }
+}
+
+/// Validate node declarations inside an implementation body.
+fn validate_node_declarations(nodes: &[NodeDecl], _span: Span, errors: &mut Vec<ValidationError>) {
+    let mut seen_names = Vec::new();
+    for node in nodes {
+        if node.name.is_empty() {
+            errors.push(ValidationError {
+                message: "node declaration must have a non-empty name".to_string(),
+                span: Some(node.span),
+                severity: Severity::Error,
+            });
+        }
+        if seen_names.contains(&node.name) {
+            errors.push(ValidationError {
+                message: format!("duplicate node name '{}' in implementation", node.name),
+                span: Some(node.span),
+                severity: Severity::Error,
+            });
+        } else {
+            seen_names.push(node.name.clone());
+        }
+
+        // tool-type nodes should declare <tool use="...">
+        if node.node_type == NodeType::Tool && node.tool_use.is_none() {
+            errors.push(ValidationError {
+                message: format!(
+                    "node '{}' has type 'tool' but no <tool use=\"...\"/> declaration",
+                    node.name
+                ),
+                span: Some(node.span),
+                severity: Severity::Warning,
+            });
+        }
+
+        // prompt-type nodes should not have <tool use="...">
+        if node.node_type == NodeType::Prompt && node.tool_use.is_some() {
+            errors.push(ValidationError {
+                message: format!(
+                    "node '{}' has type 'prompt' but declares <tool use=\"...\"/>",
+                    node.name
+                ),
+                span: Some(node.span),
+                severity: Severity::Warning,
+            });
         }
     }
 }
@@ -1118,5 +1455,283 @@ mod tests {
             "should say 'ancestor': {}",
             warnings[0]
         );
+    }
+
+    // ── Typed interface declaration validation tests ───────────────────────
+
+    #[test]
+    fn test_valid_typed_interface() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="q" type="string" required="true">Question</param>
+  <returns name="a" type="string">Answer</returns>
+  <reads>data/*.md</reads>
+  <writes>output/*.md</writes>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        let real_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| e.severity == Severity::Error)
+            .collect();
+        assert!(
+            real_errors.is_empty(),
+            "unexpected errors: {:?}",
+            real_errors
+        );
+    }
+
+    #[test]
+    fn test_duplicate_param_names() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="x" type="string">First</param>
+  <param name="x" type="number">Duplicate</param>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("duplicate param name")));
+    }
+
+    #[test]
+    fn test_invalid_param_type() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="x" type="float">Bad type</param>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("invalid param type")));
+    }
+
+    #[test]
+    fn test_enum_without_values() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="x" type="enum">Missing values</param>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors.iter().any(|e| e.message.contains("no 'values'")));
+    }
+
+    #[test]
+    fn test_non_enum_with_values() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="x" type="string" values="a|b">Not an enum</param>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("type is not 'enum'")));
+    }
+
+    #[test]
+    fn test_required_with_default_warning() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="x" type="string" required="true" default="hello">Both</param>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        let warnings: Vec<_> = errors
+            .iter()
+            .filter(|e| e.severity == Severity::Warning)
+            .collect();
+        assert!(warnings
+            .iter()
+            .any(|w| w.message.contains("required but has a default")));
+    }
+
+    #[test]
+    fn test_enum_default_not_in_values() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="x" type="enum" values="a|b|c" default="d">Bad default</param>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("not one of the allowed values")));
+    }
+
+    #[test]
+    fn test_duplicate_returns_names() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <returns name="r" type="string" />
+  <returns name="r" type="number" />
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("duplicate returns name")));
+    }
+
+    #[test]
+    fn test_boolean_default_invalid() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="flag" type="boolean" default="maybe" />
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("not 'true' or 'false'")));
+    }
+
+    #[test]
+    fn test_number_default_invalid() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <param name="count" type="number" default="abc" />
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("not a valid number")));
+    }
+
+    #[test]
+    fn test_returns_invalid_type() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <returns name="r" type="object" />
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("invalid returns type")));
+    }
+
+    #[test]
+    fn test_validate_duplicate_node_names() {
+        let doc = parse(
+            r#"<skill define="implementation" name="test-impl" implements="test">
+  <node name="Step1" type="tool">
+    <tool use="view" />
+    Do something
+  </node>
+  <node name="Step1" type="prompt">
+    Duplicate
+  </node>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("duplicate node name")));
+    }
+
+    #[test]
+    fn test_validate_tool_node_without_tool_use() {
+        let doc = parse(
+            r#"<skill define="implementation" name="test-impl" implements="test">
+  <node name="Step1" type="tool">
+    No tool use declared
+  </node>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("no <tool use=") && e.severity == Severity::Warning));
+    }
+
+    #[test]
+    fn test_validate_prompt_node_with_tool_use() {
+        let doc = parse(
+            r#"<skill define="implementation" name="test-impl" implements="test">
+  <node name="Think" type="prompt">
+    <tool use="view" />
+    Should not have tool use
+  </node>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors.iter().any(
+            |e| e.message.contains("type 'prompt' but declares <tool use=")
+                && e.severity == Severity::Warning
+        ));
+    }
+
+    #[test]
+    fn test_validate_tool_constraint_allow_deny_conflict() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <tool allow="view" deny="bash" />
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("cannot have both 'allow' and 'deny'")));
+    }
+
+    #[test]
+    fn test_validate_valid_nodes_no_errors() {
+        let doc = parse(
+            r#"<skill define="implementation" name="test-impl" implements="test">
+  <node name="Read" type="tool">
+    <tool use="view" />
+    Read a file
+  </node>
+  <node name="Think" type="prompt">
+    Reason about the data
+  </node>
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        // No errors or warnings expected for well-formed nodes
+        let node_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| e.message.contains("node"))
+            .collect();
+        assert!(
+            node_errors.is_empty(),
+            "unexpected errors: {:?}",
+            node_errors
+        );
+    }
+
+    #[test]
+    fn test_validate_skill_ref_empty_name() {
+        let doc = parse(
+            r#"<skill define="interface" name="test">
+  <skill ref="" />
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("skill ref must have a non-empty name")));
     }
 }

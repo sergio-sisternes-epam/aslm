@@ -15,7 +15,12 @@ SkillNode      ::= Invocation | InterfaceDefn | ImplDefn
 DirectiveNode  ::= ToolDirective | SessionDirective | AgentDirective
 Invocation     ::= '<skill' InvocationAttrs '>' Content '</skill>'
                  | '<skill' InvocationAttrs '/>'
-InterfaceDefn  ::= '<skill' 'define="interface"' 'name=' QuotedStr InterfaceAttrs '>' Content '</skill>'
+InterfaceDefn  ::= '<skill' 'define="interface"' 'name=' QuotedStr InterfaceAttrs '>' InterfaceBody '</skill>'
+InterfaceBody  ::= (Content | ParamDecl | ReturnsDecl | ReadsDecl | WritesDecl)*
+ParamDecl      ::= '<param' ParamDeclAttrs '>' Content '</param>' | '<param' ParamDeclAttrs '/>'
+ReturnsDecl    ::= '<returns' ReturnsDeclAttrs '>' Content '</returns>' | '<returns' ReturnsDeclAttrs '/>'
+ReadsDecl      ::= '<reads>' Content '</reads>'
+WritesDecl     ::= '<writes>' Content '</writes>'
 ImplDefn       ::= '<skill' 'define="implementation"' 'name=' QuotedStr 'implements=' QuotedStr ImplAttrs '>' Content '</skill>'
 ToolDirective  ::= '<tool' ToolAttrs '>' Content '</tool>' | '<tool' ToolAttrs '/>'
 SessionDirective ::= '<session' SessionAttrs? '>' Content '</session>' | '<session' SessionAttrs? '/>'
@@ -31,6 +36,8 @@ ImplAttrs       ::= (LangAttr | FrameworkAttr | DescriptionAttr)*
 ToolAttrs       ::= (NameAttr | AllowAttr | DenyAttr)+
 SessionAttrs    ::= (NameAttr | IsolatedAttr)*
 AgentAttrs      ::= NameAttr (ModelAttr | ModeAttr)*
+ParamDeclAttrs  ::= NameAttr TypeAttr? RequiredAttr? DefaultAttr? ValuesAttr?
+ReturnsDeclAttrs ::= NameAttr TypeAttr? ValuesAttr?
 ```
 
 ## Content Model

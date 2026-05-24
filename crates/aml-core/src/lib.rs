@@ -6,8 +6,9 @@ pub mod resolver;
 pub mod validator;
 
 pub use ast::{
-    AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, Node,
-    NodeKind, Param, SessionDirective, Span, ToolDirective,
+    AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, IoDecl, Node,
+    NodeDecl, NodeKind, NodeType, Param, ParamDecl, ReturnDecl, SessionDirective, SkillRef, Span,
+    ToolConstraint, ToolDirective,
 };
 pub use executor::{ExecutionContext, ExecutionError, SkillHandler, SkillResult, SkillStatus};
 pub use parser::{parse, ParseError};

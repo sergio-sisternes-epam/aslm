@@ -37,25 +37,79 @@ ParamValue     ::= Text                           # no nested skill tags in para
 # --- INTERFACE DEFINITION ---
 # define="interface" is required. name is required.
 # NOT executable. Registered into SkillRegistry during definition extraction phase.
+# Body may contain typed parameter declarations, return declarations,
+# file I/O declarations, and free-form text (all optional).
 InterfaceDef   ::= '<skill' 'define' '=' '"interface"' 'name' '=' QuotedString InterfaceDefAttrs? '>'
-                     Text
+                     InterfaceBody
                    '</skill>'
 
 InterfaceDefAttrs ::= DescriptionAttr?
 DescriptionAttr   ::= 'description' '=' QuotedString
 
+InterfaceBody  ::= (Text | ParamDecl | ReturnsDecl | ReadsDecl | WritesDecl | SkillRefDecl | ToolConstraintDecl)*
+
+# --- PARAMETER DECLARATIONS (inside interface definitions) ---
+# Declare a named, typed input parameter with optional default and description.
+ParamDecl      ::= '<param' ParamDeclAttrs '>' Text '</param>'
+                 | '<param' ParamDeclAttrs '/>'
+ParamDeclAttrs ::= 'name' '=' QuotedString
+                   ('type' '=' QuotedString)?        # string | enum | number | boolean | path | list
+                   ('required' '=' QuotedString)?    # "true" or "false"
+                   ('default' '=' QuotedString)?
+                   ('values' '=' QuotedString)?      # required when type="enum"; pipe-separated
+
+# --- RETURN DECLARATIONS (inside interface definitions) ---
+ReturnsDecl    ::= '<returns' ReturnsDeclAttrs '>' Text '</returns>'
+                 | '<returns' ReturnsDeclAttrs '/>'
+ReturnsDeclAttrs ::= 'name' '=' QuotedString
+                    ('type' '=' QuotedString)?
+                    ('values' '=' QuotedString)?
+
+# --- FILE I/O DECLARATIONS (inside interface definitions) ---
+# Declare file-read or file-write patterns (comma-separated globs).
+ReadsDecl      ::= '<reads>' Text '</reads>'
+WritesDecl     ::= '<writes>' Text '</writes>'
+
+# --- SKILL REFERENCE (inside interface or implementation definitions) ---
+# References another skill (e.g. for DDE enforcement).
+# Self-closing form: flat dependency declaration.
+# Wrapping form: scoped governance — enclosed content is governed by the ref.
+# In implementation bodies, <node> declarations inside wrapping refs are
+# extracted into the parent implementation's nodes list.
+SkillRefDecl   ::= '<skill' 'ref' '=' QuotedString SkillRefAttrs? '/>'
+                 | '<skill' 'ref' '=' QuotedString SkillRefAttrs? '>' SkillRefBody '</skill>'
+SkillRefAttrs  ::= 'role' '=' QuotedString
+SkillRefBody   ::= (Text | NodeDecl)*           # wrapping form may contain nodes
+
+# --- TOOL CONSTRAINT (inside interface definitions) ---
+# Declares allowed/denied tools as part of the interface contract.
+# Self-closing only; must have allow or deny (not both).
+ToolConstraintDecl ::= '<tool' (AllowAttr | DenyAttr) '/>'
+
 # --- IMPLEMENTATION DEFINITION ---
 # define="implementation" is required. name and implements are required.
 # NOT executable. Registered into SkillRegistry during definition extraction phase.
+# Body may contain DDE node declarations and free-form text (e.g. mermaid flowcharts).
 ImplementationDef ::= '<skill' 'define' '=' '"implementation"'
                         'name' '=' QuotedString
                         'implements' '=' QuotedString
                         ImplDefAttrs?
                       '>'
-                        Text
+                        ImplementationBody
                       '</skill>'
 
-ImplDefAttrs   ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
+ImplDefAttrs       ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
+
+ImplementationBody ::= (Text | NodeDecl | SkillRefDecl)*
+
+# --- NODE DECLARATIONS (inside implementation definitions) ---
+# Each node describes one step in a DDE flowchart.
+# name must match the mermaid node label.
+# type is "tool" (deterministic) or "prompt" (LLM reasoning).
+NodeDecl       ::= '<node' NodeDeclAttrs '>' NodeBody '</node>'
+NodeDeclAttrs  ::= 'name' '=' QuotedString 'type' '=' QuotedString   # "tool" or "prompt"
+NodeBody       ::= (Text | ToolUseDecl)*
+ToolUseDecl    ::= '<tool' 'use' '=' QuotedString '/>'               # which tool a node invokes
 
 # --- DIRECTIVE NODES ---
 # Directives instruct the runtime about execution environment.

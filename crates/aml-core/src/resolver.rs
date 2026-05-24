@@ -170,7 +170,17 @@ mod tests {
 
     fn make_registry() -> SkillRegistry {
         let mut reg = SkillRegistry::new();
-        reg.register_interface("testing".into(), None).unwrap();
+        reg.register_interface(
+            "testing".into(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
         reg.register_implementation(
             "pytest-impl".into(),
             "testing".into(),
@@ -178,6 +188,7 @@ mod tests {
             Some("pytest".into()),
             None,
             0,
+            Vec::new(),
         )
         .unwrap();
         reg.register_implementation(
@@ -187,6 +198,7 @@ mod tests {
             Some("jest".into()),
             None,
             0,
+            Vec::new(),
         )
         .unwrap();
         reg
