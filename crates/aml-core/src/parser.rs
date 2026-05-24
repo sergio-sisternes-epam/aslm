@@ -154,7 +154,9 @@ fn try_parse_aml_root(input: &str) -> Result<Option<Document>, ParseError> {
     for key in attrs.keys() {
         if key != "version" {
             return Err(ParseError {
-                message: format!("<aml> does not support '{key}' attribute (only 'version' is allowed)"),
+                message: format!(
+                    "<aml> does not support '{key}' attribute (only 'version' is allowed)"
+                ),
                 span: Span::new(aml_start, aml_start + tag_end + 1),
             });
         }
@@ -164,7 +166,8 @@ fn try_parse_aml_root(input: &str) -> Result<Option<Document>, ParseError> {
         let after_close = input[aml_start + tag_end + 1..].trim();
         if !after_close.is_empty() && !is_only_comments(after_close) {
             return Err(ParseError {
-                message: "non-whitespace content after <aml/> root wrapper is not allowed".to_string(),
+                message: "non-whitespace content after <aml/> root wrapper is not allowed"
+                    .to_string(),
                 span: Span::new(aml_start + tag_end + 1, input.len()),
             });
         }
@@ -173,10 +176,12 @@ fn try_parse_aml_root(input: &str) -> Result<Option<Document>, ParseError> {
 
     // Find </aml> close tag
     let content_start = aml_start + tag_end + 1;
-    let close_pos = input[content_start..].find(AML_CLOSE).ok_or_else(|| ParseError {
-        message: "unclosed <aml> tag — missing </aml>".to_string(),
-        span: Span::new(aml_start, input.len()),
-    })?;
+    let close_pos = input[content_start..]
+        .find(AML_CLOSE)
+        .ok_or_else(|| ParseError {
+            message: "unclosed <aml> tag — missing </aml>".to_string(),
+            span: Span::new(aml_start, input.len()),
+        })?;
 
     let content = &input[content_start..content_start + close_pos];
 
@@ -493,8 +498,7 @@ fn parse_children_excluding_params(
         } else if let Some(tag) = detect_open_tag(&input[pos..]) {
             match tag {
                 TagName::Skill => {
-                    let (node, consumed) =
-                        parse_skill_tag(&input[pos..], base_offset + pos)?;
+                    let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
                     nodes.push(node);
                     pos += consumed;
                 }
@@ -878,7 +882,11 @@ fn build_directive_kind(
                 })
                 .transpose()?;
 
-            Ok(DirectiveKind::Session(SessionDirective { name, isolated, on_failure: parse_on_failure(&attrs, offset)? }))
+            Ok(DirectiveKind::Session(SessionDirective {
+                name,
+                isolated,
+                on_failure: parse_on_failure(attrs, offset)?,
+            }))
         }
         TagName::Agent => {
             let name = attrs.get("name").cloned().ok_or_else(|| ParseError {
@@ -898,13 +906,15 @@ fn build_directive_kind(
                 })
                 .transpose()?;
 
-            Ok(DirectiveKind::Agent(AgentDirective { name, model, mode, on_failure: parse_on_failure(&attrs, offset)? }))
+            Ok(DirectiveKind::Agent(AgentDirective {
+                name,
+                model,
+                mode,
+                on_failure: parse_on_failure(attrs, offset)?,
+            }))
         }
         _ => Err(ParseError {
-            message: format!(
-                "unexpected directive tag: <{}>",
-                tag_name.as_str()
-            ),
+            message: format!("unexpected directive tag: <{}>", tag_name.as_str()),
             span: Span::new(offset, offset + 20),
         }),
     }
@@ -1241,8 +1251,7 @@ mod tests {
 
     #[test]
     fn test_nested_skill_in_agent() {
-        let input =
-            r#"<agent name="dev"><skill interface="lint">code</skill></agent>"#;
+        let input = r#"<agent name="dev"><skill interface="lint">code</skill></agent>"#;
         let doc = parse(input).unwrap();
         assert_eq!(doc.nodes.len(), 1);
         match &doc.nodes[0] {
@@ -1318,7 +1327,8 @@ mod tests {
 
     #[test]
     fn test_aml_root_with_whitespace_around() {
-        let doc = parse("  \n<aml version=\"0.1\">\n  <skill name=\"x\">y</skill>\n</aml>\n  ").unwrap();
+        let doc =
+            parse("  \n<aml version=\"0.1\">\n  <skill name=\"x\">y</skill>\n</aml>\n  ").unwrap();
         assert_eq!(doc.version.as_deref(), Some("0.1"));
     }
 
@@ -1338,36 +1348,59 @@ mod tests {
     #[test]
     fn test_aml_missing_version() {
         let err = parse("<aml><skill name=\"x\">y</skill></aml>").unwrap_err();
-        assert!(err.message.contains("version"), "should require version: {}", err.message);
+        assert!(
+            err.message.contains("version"),
+            "should require version: {}",
+            err.message
+        );
     }
 
     #[test]
     fn test_aml_unknown_attribute() {
-        let err = parse(r#"<aml version="0.1" encoding="utf-8"><skill name="x">y</skill></aml>"#).unwrap_err();
-        assert!(err.message.contains("encoding"), "should reject unknown attr: {}", err.message);
+        let err = parse(r#"<aml version="0.1" encoding="utf-8"><skill name="x">y</skill></aml>"#)
+            .unwrap_err();
+        assert!(
+            err.message.contains("encoding"),
+            "should reject unknown attr: {}",
+            err.message
+        );
     }
 
     #[test]
     fn test_aml_text_before_error() {
-        let err = parse(r#"some text <aml version="0.1"><skill name="x">y</skill></aml>"#).unwrap_err();
-        assert!(err.message.contains("non-whitespace content before"), "{}", err.message);
+        let err =
+            parse(r#"some text <aml version="0.1"><skill name="x">y</skill></aml>"#).unwrap_err();
+        assert!(
+            err.message.contains("non-whitespace content before"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]
     fn test_aml_text_after_error() {
-        let err = parse(r#"<aml version="0.1"><skill name="x">y</skill></aml> trailing text"#).unwrap_err();
-        assert!(err.message.contains("non-whitespace content after"), "{}", err.message);
+        let err = parse(r#"<aml version="0.1"><skill name="x">y</skill></aml> trailing text"#)
+            .unwrap_err();
+        assert!(
+            err.message.contains("non-whitespace content after"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]
     fn test_aml_nested_error() {
-        let err = parse(r#"<aml version="0.1"><aml version="0.2"><skill name="x">y</skill></aml></aml>"#).unwrap_err();
+        let err =
+            parse(r#"<aml version="0.1"><aml version="0.2"><skill name="x">y</skill></aml></aml>"#)
+                .unwrap_err();
         assert!(err.message.contains("nested"), "{}", err.message);
     }
 
     #[test]
     fn test_aml_nested_in_skill_error() {
-        let err = parse(r#"<aml version="0.1"><skill name="x"><aml version="0.2">y</aml></skill></aml>"#).unwrap_err();
+        let err =
+            parse(r#"<aml version="0.1"><skill name="x"><aml version="0.2">y</aml></skill></aml>"#)
+                .unwrap_err();
         assert!(err.message.contains("nested"), "{}", err.message);
     }
 
@@ -1381,22 +1414,36 @@ mod tests {
     #[test]
     fn test_aml_unclosed_error() {
         let err = parse(r#"<aml version="0.1"><skill name="x">y</skill>"#).unwrap_err();
-        assert!(err.message.contains("unclosed") || err.message.contains("missing </aml>"),
-            "{}", err.message);
+        assert!(
+            err.message.contains("unclosed") || err.message.contains("missing </aml>"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]
     fn test_aml_preserves_children() {
-        let doc = parse(r#"<aml version="0.1">
+        let doc = parse(
+            r#"<aml version="0.1">
             <tool name="grep">
                 <skill name="search">find things</skill>
             </tool>
             <agent name="worker">do work</agent>
-        </aml>"#).unwrap();
+        </aml>"#,
+        )
+        .unwrap();
         assert_eq!(doc.version.as_deref(), Some("0.1"));
         // Should have text + tool + text + agent + text nodes
-        let non_text: Vec<_> = doc.nodes.iter().filter(|n| !matches!(n, Node::Text(_))).collect();
-        assert_eq!(non_text.len(), 2, "should have tool + agent: {:?}", non_text);
+        let non_text: Vec<_> = doc
+            .nodes
+            .iter()
+            .filter(|n| !matches!(n, Node::Text(_)))
+            .collect();
+        assert_eq!(
+            non_text.len(),
+            2,
+            "should have tool + agent: {:?}",
+            non_text
+        );
     }
 }
-

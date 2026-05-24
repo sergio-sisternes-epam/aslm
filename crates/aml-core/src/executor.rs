@@ -431,10 +431,7 @@ mod tests {
     #[test]
     fn test_nested_directives() {
         let ctx = setup_context();
-        let doc = parse(
-            r#"<session name="s1"><tool name="bash">hello</tool></session>"#,
-        )
-        .unwrap();
+        let doc = parse(r#"<session name="s1"><tool name="bash">hello</tool></session>"#).unwrap();
         let result = ctx.execute(&doc).unwrap();
         assert_eq!(result, "hello");
     }
@@ -480,7 +477,10 @@ mod tests {
         )
         .unwrap();
         let result = ctx.execute(&doc).unwrap();
-        assert!(result.contains("DIRECTIVE FAILED"), "partial mode should include failure text: {result}");
+        assert!(
+            result.contains("DIRECTIVE FAILED"),
+            "partial mode should include failure text: {result}"
+        );
     }
 
     #[test]

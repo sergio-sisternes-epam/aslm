@@ -284,12 +284,18 @@ pub struct Document {
 impl Document {
     #[must_use]
     pub fn new(nodes: Vec<Node>) -> Self {
-        Self { version: None, nodes }
+        Self {
+            version: None,
+            nodes,
+        }
     }
 
     #[must_use]
     pub fn with_version(version: String, nodes: Vec<Node>) -> Self {
-        Self { version: Some(version), nodes }
+        Self {
+            version: Some(version),
+            nodes,
+        }
     }
 
     /// Iterate over all skill nodes (flat, non-recursive).

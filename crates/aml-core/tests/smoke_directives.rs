@@ -6,9 +6,7 @@
 
 use std::collections::HashMap;
 
-use aml_core::ast::{
-    AgentMode, DirectiveKind, Node, NodeKind, SessionDirective,
-};
+use aml_core::ast::{AgentMode, DirectiveKind, Node, NodeKind, SessionDirective};
 use aml_core::executor::{ExecutionContext, SkillResult, SkillStatus};
 use aml_core::parser::parse;
 use aml_core::registry::SkillRegistry;
@@ -130,11 +128,7 @@ fn smoke_parse_complex_document() {
     );
 
     // Count node types
-    let definitions = doc
-        .nodes
-        .iter()
-        .filter(|n| n.is_definition())
-        .count();
+    let definitions = doc.nodes.iter().filter(|n| n.is_definition()).count();
     assert_eq!(definitions, 4, "expected 4 definitions");
 
     let directives: Vec<_> = doc
@@ -142,7 +136,11 @@ fn smoke_parse_complex_document() {
         .iter()
         .filter(|n| matches!(n, Node::Directive { .. }))
         .collect();
-    assert_eq!(directives.len(), 1, "expected 1 top-level directive (session)");
+    assert_eq!(
+        directives.len(),
+        1,
+        "expected 1 top-level directive (session)"
+    );
 
     // Verify the session directive structure
     if let Node::Directive { kind, children, .. } = &directives[0] {
@@ -157,13 +155,24 @@ fn smoke_parse_complex_document() {
         // Session should contain 2 agent directives (plus whitespace text)
         let agents: Vec<_> = children
             .iter()
-            .filter(|n| matches!(n, Node::Directive { kind: DirectiveKind::Agent(_), .. }))
+            .filter(|n| {
+                matches!(
+                    n,
+                    Node::Directive {
+                        kind: DirectiveKind::Agent(_),
+                        ..
+                    }
+                )
+            })
             .collect();
         assert_eq!(agents.len(), 2, "session should contain 2 agents");
 
         // First agent: lead-reviewer
-        if let Node::Directive { kind: DirectiveKind::Agent(agent), children: agent_children, .. } =
-            &agents[0]
+        if let Node::Directive {
+            kind: DirectiveKind::Agent(agent),
+            children: agent_children,
+            ..
+        } = &agents[0]
         {
             assert_eq!(agent.name, "lead-reviewer");
             assert_eq!(agent.mode, Some(AgentMode::Sync));
@@ -172,12 +181,23 @@ fn smoke_parse_complex_document() {
             // Should contain a tool directive
             let tools: Vec<_> = agent_children
                 .iter()
-                .filter(|n| matches!(n, Node::Directive { kind: DirectiveKind::Tool(_), .. }))
+                .filter(|n| {
+                    matches!(
+                        n,
+                        Node::Directive {
+                            kind: DirectiveKind::Tool(_),
+                            ..
+                        }
+                    )
+                })
                 .collect();
             assert_eq!(tools.len(), 1);
 
-            if let Node::Directive { kind: DirectiveKind::Tool(tool), children: tool_children, .. } =
-                &tools[0]
+            if let Node::Directive {
+                kind: DirectiveKind::Tool(tool),
+                children: tool_children,
+                ..
+            } = &tools[0]
             {
                 assert_eq!(tool.allow.as_deref(), Some("grep,view,bash"));
                 assert!(tool.deny.is_none());
@@ -185,14 +205,26 @@ fn smoke_parse_complex_document() {
                 // Should contain a skill invocation
                 let skills: Vec<_> = tool_children
                     .iter()
-                    .filter(|n| matches!(n, Node::Skill { kind: NodeKind::Invocation { .. }, .. }))
+                    .filter(|n| {
+                        matches!(
+                            n,
+                            Node::Skill {
+                                kind: NodeKind::Invocation { .. },
+                                ..
+                            }
+                        )
+                    })
                     .collect();
                 assert_eq!(skills.len(), 1, "tool should wrap one skill");
             }
         }
 
         // Second agent: test-engineer
-        if let Node::Directive { kind: DirectiveKind::Agent(agent), .. } = &agents[1] {
+        if let Node::Directive {
+            kind: DirectiveKind::Agent(agent),
+            ..
+        } = &agents[1]
+        {
             assert_eq!(agent.name, "test-engineer");
             assert_eq!(agent.model.as_deref(), Some("claude-haiku"));
             assert_eq!(agent.mode, Some(AgentMode::Background));
@@ -255,10 +287,7 @@ fn smoke_validate_allow_deny_conflict() {
     let input = r#"<tool allow="bash" deny="grep">content</tool>"#;
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
-    assert!(
-        !errors.is_empty(),
-        "should report allow/deny conflict"
-    );
+    assert!(!errors.is_empty(), "should report allow/deny conflict");
     assert!(
         errors[0].message.contains("mutually exclusive")
             || errors[0].message.contains("allow")
@@ -283,7 +312,8 @@ fn smoke_parse_agent_missing_name() {
 
 #[test]
 fn smoke_validate_directive_in_definition() {
-    let input = r#"<skill define="interface" name="review"><tool name="bash">content</tool></skill>"#;
+    let input =
+        r#"<skill define="interface" name="review"><tool name="bash">content</tool></skill>"#;
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
     assert!(
@@ -314,7 +344,11 @@ fn smoke_triple_nested_directives() {
     let input = r#"<session name="outer"><agent name="worker"><tool allow="grep"><skill interface="testing" language="python">deep</skill></tool></agent></session>"#;
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
-    assert!(errors.is_empty(), "triple nesting should be valid: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "triple nesting should be valid: {:?}",
+        errors
+    );
 
     let result = ctx.execute(&doc).expect("execution should succeed");
     assert_eq!(result, "[tested: deep]");
@@ -348,33 +382,82 @@ fn smoke_nested_tools_narrowing() {
     let errors = validate(&doc.nodes);
 
     // Should produce a warning (not error) about web_search
-    let warnings: Vec<_> = errors.iter()
+    let warnings: Vec<_> = errors
+        .iter()
         .filter(|e| e.severity == Severity::Warning)
         .collect();
-    assert_eq!(warnings.len(), 1, "expected 1 warning about web_search: {:?}", errors);
-    assert!(warnings[0].message.contains("web_search"), "warning should mention web_search");
+    assert_eq!(
+        warnings.len(),
+        1,
+        "expected 1 warning about web_search: {:?}",
+        errors
+    );
+    assert!(
+        warnings[0].message.contains("web_search"),
+        "warning should mention web_search"
+    );
 
-    let hard_errors: Vec<_> = errors.iter()
+    let hard_errors: Vec<_> = errors
+        .iter()
         .filter(|e| e.severity == Severity::Error)
         .collect();
     assert!(hard_errors.is_empty(), "no hard errors expected");
 
     let result = ctx.execute(&doc).expect("execution should succeed");
-    assert!(result.contains("[reviewed:"), "skill should execute through nested tools");
+    assert!(
+        result.contains("[reviewed:"),
+        "skill should execute through nested tools"
+    );
 
     // Verify AST structure: outer tool > inner tool > skill
-    let outer = &doc.nodes.iter()
-        .find(|n| matches!(n, Node::Directive { kind: DirectiveKind::Tool(_), .. }))
+    let outer = &doc
+        .nodes
+        .iter()
+        .find(|n| {
+            matches!(
+                n,
+                Node::Directive {
+                    kind: DirectiveKind::Tool(_),
+                    ..
+                }
+            )
+        })
         .expect("should have outer tool");
-    if let Node::Directive { kind: DirectiveKind::Tool(tool), children, .. } = outer {
+    if let Node::Directive {
+        kind: DirectiveKind::Tool(tool),
+        children,
+        ..
+    } = outer
+    {
         assert_eq!(tool.allow.as_deref(), Some("grep,view,bash,glob"));
-        let inner = children.iter()
-            .find(|n| matches!(n, Node::Directive { kind: DirectiveKind::Tool(_), .. }))
+        let inner = children
+            .iter()
+            .find(|n| {
+                matches!(
+                    n,
+                    Node::Directive {
+                        kind: DirectiveKind::Tool(_),
+                        ..
+                    }
+                )
+            })
             .expect("should have inner tool");
-        if let Node::Directive { kind: DirectiveKind::Tool(inner_tool), children: inner_children, .. } = inner {
+        if let Node::Directive {
+            kind: DirectiveKind::Tool(inner_tool),
+            children: inner_children,
+            ..
+        } = inner
+        {
             assert_eq!(inner_tool.allow.as_deref(), Some("grep,web_search"));
-            let has_skill = inner_children.iter()
-                .any(|n| matches!(n, Node::Skill { kind: NodeKind::Invocation { .. }, .. }));
+            let has_skill = inner_children.iter().any(|n| {
+                matches!(
+                    n,
+                    Node::Skill {
+                        kind: NodeKind::Invocation { .. },
+                        ..
+                    }
+                )
+            });
             assert!(has_skill, "inner tool should contain the skill");
         }
     }
@@ -392,7 +475,11 @@ fn smoke_nested_tools_deny_then_allow() {
 </tool>"#;
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
-    assert!(errors.is_empty(), "deny+allow nesting should be valid: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "deny+allow nesting should be valid: {:?}",
+        errors
+    );
 
     let result = ctx.execute(&doc).expect("execution should succeed");
     assert_eq!(result.trim(), "[tested: safe search]");
@@ -411,7 +498,11 @@ fn smoke_triple_nested_tools() {
 </tool>"#;
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
-    assert!(errors.is_empty(), "triple tool nesting should be valid: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "triple tool nesting should be valid: {:?}",
+        errors
+    );
 
     let result = ctx.execute(&doc).expect("execution should succeed");
     assert!(result.contains("[reviewed: deeply constrained]"));
@@ -420,8 +511,15 @@ fn smoke_triple_nested_tools() {
     let mut depth = 0;
     let mut current_nodes = &doc.nodes;
     loop {
-        let tool_node = current_nodes.iter()
-            .find(|n| matches!(n, Node::Directive { kind: DirectiveKind::Tool(_), .. }));
+        let tool_node = current_nodes.iter().find(|n| {
+            matches!(
+                n,
+                Node::Directive {
+                    kind: DirectiveKind::Tool(_),
+                    ..
+                }
+            )
+        });
         match tool_node {
             Some(Node::Directive { children, .. }) => {
                 depth += 1;
@@ -483,7 +581,11 @@ fn smoke_realistic_pipeline_with_nested_tools() {
 
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
-    assert!(errors.is_empty(), "realistic pipeline should be valid: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "realistic pipeline should be valid: {:?}",
+        errors
+    );
 
     let result = ctx.execute(&doc).expect("execution should succeed");
 
@@ -494,34 +596,89 @@ fn smoke_realistic_pipeline_with_nested_tools() {
     assert_eq!(test_count, 1, "1 testing skill should run");
 
     // Verify agent structure
-    let session = doc.nodes.iter()
-        .find(|n| matches!(n, Node::Directive { kind: DirectiveKind::Session(_), .. }))
+    let session = doc
+        .nodes
+        .iter()
+        .find(|n| {
+            matches!(
+                n,
+                Node::Directive {
+                    kind: DirectiveKind::Session(_),
+                    ..
+                }
+            )
+        })
         .expect("should have session");
     if let Node::Directive { children, .. } = session {
-        let agents: Vec<_> = children.iter()
-            .filter(|n| matches!(n, Node::Directive { kind: DirectiveKind::Agent(_), .. }))
+        let agents: Vec<_> = children
+            .iter()
+            .filter(|n| {
+                matches!(
+                    n,
+                    Node::Directive {
+                        kind: DirectiveKind::Agent(_),
+                        ..
+                    }
+                )
+            })
             .collect();
         assert_eq!(agents.len(), 4, "session should have 4 agents");
 
         // Verify implementer has nested tools (allow > deny)
-        if let Node::Directive { kind: DirectiveKind::Agent(agent), children: ac, .. } = &agents[1] {
+        if let Node::Directive {
+            kind: DirectiveKind::Agent(agent),
+            children: ac,
+            ..
+        } = &agents[1]
+        {
             assert_eq!(agent.name, "implementer");
-            let outer_tool = ac.iter()
-                .find(|n| matches!(n, Node::Directive { kind: DirectiveKind::Tool(_), .. }))
+            let outer_tool = ac
+                .iter()
+                .find(|n| {
+                    matches!(
+                        n,
+                        Node::Directive {
+                            kind: DirectiveKind::Tool(_),
+                            ..
+                        }
+                    )
+                })
                 .expect("implementer should have outer tool");
-            if let Node::Directive { kind: DirectiveKind::Tool(t), children: tc, .. } = outer_tool {
+            if let Node::Directive {
+                kind: DirectiveKind::Tool(t),
+                children: tc,
+                ..
+            } = outer_tool
+            {
                 assert_eq!(t.allow.as_deref(), Some("grep,glob,view,bash,web_search"));
-                let inner_tool = tc.iter()
-                    .find(|n| matches!(n, Node::Directive { kind: DirectiveKind::Tool(_), .. }))
+                let inner_tool = tc
+                    .iter()
+                    .find(|n| {
+                        matches!(
+                            n,
+                            Node::Directive {
+                                kind: DirectiveKind::Tool(_),
+                                ..
+                            }
+                        )
+                    })
                     .expect("implementer should have inner tool");
-                if let Node::Directive { kind: DirectiveKind::Tool(it), .. } = inner_tool {
+                if let Node::Directive {
+                    kind: DirectiveKind::Tool(it),
+                    ..
+                } = inner_tool
+                {
                     assert_eq!(it.deny.as_deref(), Some("web_fetch"));
                 }
             }
         }
 
         // Verify deployer runs in background
-        if let Node::Directive { kind: DirectiveKind::Agent(agent), .. } = &agents[3] {
+        if let Node::Directive {
+            kind: DirectiveKind::Agent(agent),
+            ..
+        } = &agents[3]
+        {
             assert_eq!(agent.name, "deployer");
             assert_eq!(agent.mode, Some(AgentMode::Background));
         }
@@ -541,8 +698,16 @@ fn smoke_tool_name_shorthand_nested() {
     let errors = validate(&doc.nodes);
     // With correct constraint narrowing, name="bash" sets allowed=["bash"],
     // so inner name="grep" correctly warns that grep is outside the allow-list
-    let warnings: Vec<_> = errors.iter().filter(|e| e.severity == Severity::Warning).collect();
-    assert_eq!(warnings.len(), 1, "expected warning about grep not in bash scope: {:?}", errors);
+    let warnings: Vec<_> = errors
+        .iter()
+        .filter(|e| e.severity == Severity::Warning)
+        .collect();
+    assert_eq!(
+        warnings.len(),
+        1,
+        "expected warning about grep not in bash scope: {:?}",
+        errors
+    );
     assert!(warnings[0].message.contains("grep"));
 
     // Execution still succeeds (warnings are advisory)
@@ -564,7 +729,11 @@ fn smoke_sibling_tools_in_agent() {
 </agent>"#;
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
-    assert!(errors.is_empty(), "sibling tools should be valid: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "sibling tools should be valid: {:?}",
+        errors
+    );
 
     let result = ctx.execute(&doc).expect("execution should succeed");
     assert!(result.contains("[reviewed: phase 1: search]"));
