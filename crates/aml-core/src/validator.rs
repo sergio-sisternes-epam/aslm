@@ -1,4 +1,7 @@
-use crate::ast::{DirectiveKind, IoDecl, Node, NodeDecl, NodeKind, NodeType, ParamDecl, ReturnDecl, SkillRef, Span, ToolConstraint, ToolDirective};
+use crate::ast::{
+    DirectiveKind, IoDecl, Node, NodeDecl, NodeKind, NodeType, ParamDecl, ReturnDecl, SkillRef,
+    Span, ToolConstraint, ToolDirective,
+};
 
 /// Validation error with source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -306,7 +309,11 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
             validate_tool_constraints(tool_constraints, span, errors);
         }
         NodeKind::ImplementationDefinition {
-            name, implements, nodes, skill_refs, ..
+            name,
+            implements,
+            nodes,
+            skill_refs,
+            ..
         } => {
             if name.is_empty() {
                 errors.push(ValidationError {
@@ -419,10 +426,7 @@ fn validate_interface_declarations(
         // required + default is a warning
         if p.required == Some(true) && p.default.is_some() {
             errors.push(ValidationError {
-                message: format!(
-                    "param '{}' is required but has a default value",
-                    p.name
-                ),
+                message: format!("param '{}' is required but has a default value", p.name),
                 span: Some(p.span),
                 severity: Severity::Warning,
             });
@@ -481,7 +485,10 @@ fn validate_interface_declarations(
     for r in returns {
         if seen_return_names.contains(&r.name) {
             errors.push(ValidationError {
-                message: format!("duplicate returns name '{}' in interface definition", r.name),
+                message: format!(
+                    "duplicate returns name '{}' in interface definition",
+                    r.name
+                ),
                 span: Some(r.span),
                 severity: Severity::Error,
             });
@@ -599,11 +606,7 @@ fn validate_tool_constraints(
 }
 
 /// Validate node declarations inside an implementation body.
-fn validate_node_declarations(
-    nodes: &[NodeDecl],
-    _span: Span,
-    errors: &mut Vec<ValidationError>,
-) {
+fn validate_node_declarations(nodes: &[NodeDecl], _span: Span, errors: &mut Vec<ValidationError>) {
     let mut seen_names = Vec::new();
     for node in nodes {
         if node.name.is_empty() {
@@ -1458,113 +1461,175 @@ mod tests {
 
     #[test]
     fn test_valid_typed_interface() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="q" type="string" required="true">Question</param>
   <returns name="a" type="string">Answer</returns>
   <reads>data/*.md</reads>
   <writes>output/*.md</writes>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        let real_errors: Vec<_> = errors.iter().filter(|e| e.severity == Severity::Error).collect();
-        assert!(real_errors.is_empty(), "unexpected errors: {:?}", real_errors);
+        let real_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| e.severity == Severity::Error)
+            .collect();
+        assert!(
+            real_errors.is_empty(),
+            "unexpected errors: {:?}",
+            real_errors
+        );
     }
 
     #[test]
     fn test_duplicate_param_names() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="x" type="string">First</param>
   <param name="x" type="number">Duplicate</param>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("duplicate param name")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("duplicate param name")));
     }
 
     #[test]
     fn test_invalid_param_type() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="x" type="float">Bad type</param>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("invalid param type")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("invalid param type")));
     }
 
     #[test]
     fn test_enum_without_values() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="x" type="enum">Missing values</param>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
         assert!(errors.iter().any(|e| e.message.contains("no 'values'")));
     }
 
     #[test]
     fn test_non_enum_with_values() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="x" type="string" values="a|b">Not an enum</param>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("type is not 'enum'")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("type is not 'enum'")));
     }
 
     #[test]
     fn test_required_with_default_warning() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="x" type="string" required="true" default="hello">Both</param>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        let warnings: Vec<_> = errors.iter().filter(|e| e.severity == Severity::Warning).collect();
-        assert!(warnings.iter().any(|w| w.message.contains("required but has a default")));
+        let warnings: Vec<_> = errors
+            .iter()
+            .filter(|e| e.severity == Severity::Warning)
+            .collect();
+        assert!(warnings
+            .iter()
+            .any(|w| w.message.contains("required but has a default")));
     }
 
     #[test]
     fn test_enum_default_not_in_values() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="x" type="enum" values="a|b|c" default="d">Bad default</param>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("not one of the allowed values")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("not one of the allowed values")));
     }
 
     #[test]
     fn test_duplicate_returns_names() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <returns name="r" type="string" />
   <returns name="r" type="number" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("duplicate returns name")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("duplicate returns name")));
     }
 
     #[test]
     fn test_boolean_default_invalid() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="flag" type="boolean" default="maybe" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("not 'true' or 'false'")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("not 'true' or 'false'")));
     }
 
     #[test]
     fn test_number_default_invalid() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="count" type="number" default="abc" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("not a valid number")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("not a valid number")));
     }
 
     #[test]
     fn test_returns_invalid_type() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <returns name="r" type="object" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("invalid returns type")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("invalid returns type")));
     }
 
     #[test]
     fn test_validate_duplicate_node_names() {
-        let doc = parse(r#"<skill define="implementation" name="test-impl" implements="test">
+        let doc = parse(
+            r#"<skill define="implementation" name="test-impl" implements="test">
   <node name="Step1" type="tool">
     <tool use="view" />
     Do something
@@ -1572,46 +1637,67 @@ mod tests {
   <node name="Step1" type="prompt">
     Duplicate
   </node>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("duplicate node name")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("duplicate node name")));
     }
 
     #[test]
     fn test_validate_tool_node_without_tool_use() {
-        let doc = parse(r#"<skill define="implementation" name="test-impl" implements="test">
+        let doc = parse(
+            r#"<skill define="implementation" name="test-impl" implements="test">
   <node name="Step1" type="tool">
     No tool use declared
   </node>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("no <tool use=") && e.severity == Severity::Warning));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("no <tool use=") && e.severity == Severity::Warning));
     }
 
     #[test]
     fn test_validate_prompt_node_with_tool_use() {
-        let doc = parse(r#"<skill define="implementation" name="test-impl" implements="test">
+        let doc = parse(
+            r#"<skill define="implementation" name="test-impl" implements="test">
   <node name="Think" type="prompt">
     <tool use="view" />
     Should not have tool use
   </node>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("type 'prompt' but declares <tool use=") && e.severity == Severity::Warning));
+        assert!(errors.iter().any(
+            |e| e.message.contains("type 'prompt' but declares <tool use=")
+                && e.severity == Severity::Warning
+        ));
     }
 
     #[test]
     fn test_validate_tool_constraint_allow_deny_conflict() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <tool allow="view" deny="bash" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("cannot have both 'allow' and 'deny'")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("cannot have both 'allow' and 'deny'")));
     }
 
     #[test]
     fn test_validate_valid_nodes_no_errors() {
-        let doc = parse(r#"<skill define="implementation" name="test-impl" implements="test">
+        let doc = parse(
+            r#"<skill define="implementation" name="test-impl" implements="test">
   <node name="Read" type="tool">
     <tool use="view" />
     Read a file
@@ -1619,19 +1705,33 @@ mod tests {
   <node name="Think" type="prompt">
     Reason about the data
   </node>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
         // No errors or warnings expected for well-formed nodes
-        let node_errors: Vec<_> = errors.iter().filter(|e| e.message.contains("node")).collect();
-        assert!(node_errors.is_empty(), "unexpected errors: {:?}", node_errors);
+        let node_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| e.message.contains("node"))
+            .collect();
+        assert!(
+            node_errors.is_empty(),
+            "unexpected errors: {:?}",
+            node_errors
+        );
     }
 
     #[test]
     fn test_validate_skill_ref_empty_name() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <skill ref="" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
         let errors = validate(&doc.nodes);
-        assert!(errors.iter().any(|e| e.message.contains("skill ref must have a non-empty name")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("skill ref must have a non-empty name")));
     }
 }

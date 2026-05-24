@@ -16,29 +16,47 @@ use aml_core::validator::{validate, Severity};
 
 fn build_registry() -> SkillRegistry {
     let mut reg = SkillRegistry::new();
-    reg.register_interface("code-review".into(), Some("Review code".into()), Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new())
-        .unwrap();
+    reg.register_interface(
+        "code-review".into(),
+        Some("Review code".into()),
+        Vec::new(),
+        Vec::new(),
+        None,
+        None,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
     reg.register_implementation(
         "python-review".into(),
         "code-review".into(),
         Some("python".into()),
         None,
         Some("Python code reviewer".into()),
-            0,
-            Vec::new(),
-        )
+        0,
+        Vec::new(),
+    )
     .unwrap();
-    reg.register_interface("testing".into(), Some("Run tests".into()), Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new())
-        .unwrap();
+    reg.register_interface(
+        "testing".into(),
+        Some("Run tests".into()),
+        Vec::new(),
+        Vec::new(),
+        None,
+        None,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
     reg.register_implementation(
         "pytest-runner".into(),
         "testing".into(),
         Some("python".into()),
         None,
         Some("Pytest executor".into()),
-            0,
-            Vec::new(),
-        )
+        0,
+        Vec::new(),
+    )
     .unwrap();
     reg
 }

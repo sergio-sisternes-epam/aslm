@@ -242,8 +242,17 @@ mod tests {
     #[test]
     fn test_register_and_lookup() {
         let mut reg = SkillRegistry::new();
-        reg.register_interface("testing".into(), Some("Run tests".into()), Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new())
-            .unwrap();
+        reg.register_interface(
+            "testing".into(),
+            Some("Run tests".into()),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
         reg.register_implementation(
             "pytest-impl".into(),
             "testing".into(),
@@ -263,8 +272,29 @@ mod tests {
     #[test]
     fn test_duplicate_interface() {
         let mut reg = SkillRegistry::new();
-        reg.register_interface("testing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap();
-        let err = reg.register_interface("testing".into(), None, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new()).unwrap_err();
+        reg.register_interface(
+            "testing".into(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let err = reg
+            .register_interface(
+                "testing".into(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap_err();
         assert_eq!(err, RegistryError::DuplicateInterface("testing".into()));
     }
 

@@ -810,9 +810,7 @@ fn try_parse_skill_ref(
     for conflict in &["interface", "impl", "define", "name"] {
         if attrs.contains_key(*conflict) {
             return Err(ParseError {
-                message: format!(
-                    "<skill ref=\"{ref_name}\"> must not have '{conflict}' attribute"
-                ),
+                message: format!("<skill ref=\"{ref_name}\"> must not have '{conflict}' attribute"),
                 span: Span::new(base_offset, base_offset + tag_end + 1),
             });
         }
@@ -883,9 +881,7 @@ fn try_parse_skill_ref_with_content(
     for conflict in &["interface", "impl", "define", "name"] {
         if attrs.contains_key(*conflict) {
             return Err(ParseError {
-                message: format!(
-                    "<skill ref=\"{ref_name}\"> must not have '{conflict}' attribute"
-                ),
+                message: format!("<skill ref=\"{ref_name}\"> must not have '{conflict}' attribute"),
                 span: Span::new(base_offset, base_offset + tag_end + 1),
             });
         }
@@ -907,8 +903,11 @@ fn try_parse_skill_ref_with_content(
 
     // Wrapping form: find matching </skill>, extract inner content for nodes
     let content_start = tag_end + 1;
-    let (content_end, close_tag_end) =
-        find_matching_close(TagName::Skill, &input[content_start..], base_offset + content_start)?;
+    let (content_end, close_tag_end) = find_matching_close(
+        TagName::Skill,
+        &input[content_start..],
+        base_offset + content_start,
+    )?;
 
     let inner_content = &input[content_start..content_start + content_end];
 
@@ -1089,9 +1088,11 @@ fn parse_implementation_body(
             match tag {
                 TagName::Skill => {
                     // Check for wrapping or self-closing <skill ref="...">
-                    if let Some((sr, consumed)) =
-                        try_parse_skill_ref_with_content(&input[pos..], base_offset + pos, &mut nodes)?
-                    {
+                    if let Some((sr, consumed)) = try_parse_skill_ref_with_content(
+                        &input[pos..],
+                        base_offset + pos,
+                        &mut nodes,
+                    )? {
                         skill_refs.push(sr);
                         pos += consumed;
                         continue;
@@ -1134,7 +1135,11 @@ fn parse_implementation_body(
     }
 
     merge_text_nodes(&mut children);
-    Ok(ParsedImplementationBody { nodes, skill_refs, children })
+    Ok(ParsedImplementationBody {
+        nodes,
+        skill_refs,
+        children,
+    })
 }
 
 /// Parse a `<node name="..." type="...">` declaration inside an implementation body.
@@ -1284,9 +1289,7 @@ fn parse_param_decl(input: &str, base_offset: usize) -> Result<(ParamDecl, usize
             "true" => Ok(true),
             "false" => Ok(false),
             other => Err(ParseError {
-                message: format!(
-                    "invalid required value: '{other}' (expected 'true' or 'false')"
-                ),
+                message: format!("invalid required value: '{other}' (expected 'true' or 'false')"),
                 span: Span::new(base_offset, base_offset + tag_end + 1),
             }),
         })
@@ -2401,17 +2404,27 @@ mod tests {
 
     #[test]
     fn test_interface_with_typed_params() {
-        let doc = parse(r#"<skill define="interface" name="brain-query">
+        let doc = parse(
+            r#"<skill define="interface" name="brain-query">
   <param name="question" type="string" required="true">The question to answer</param>
   <param name="format" type="enum" values="markdown|table" default="markdown">Output format</param>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { params, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::InterfaceDefinition { params, .. },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(params.len(), 2);
             assert_eq!(params[0].name, "question");
             assert_eq!(params[0].param_type.as_deref(), Some("string"));
             assert_eq!(params[0].required, Some(true));
-            assert_eq!(params[0].description.as_deref(), Some("The question to answer"));
+            assert_eq!(
+                params[0].description.as_deref(),
+                Some("The question to answer")
+            );
             assert_eq!(params[1].name, "format");
             assert_eq!(params[1].param_type.as_deref(), Some("enum"));
             assert_eq!(params[1].values.as_deref(), Some("markdown|table"));
@@ -2423,18 +2436,31 @@ mod tests {
 
     #[test]
     fn test_interface_with_returns() {
-        let doc = parse(r#"<skill define="interface" name="brain-query">
+        let doc = parse(
+            r#"<skill define="interface" name="brain-query">
   <returns name="answer" type="string">Citation-backed answer</returns>
   <returns name="quality" type="enum" values="answered|partial|unanswered" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { returns, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::InterfaceDefinition { returns, .. },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(returns.len(), 2);
             assert_eq!(returns[0].name, "answer");
-            assert_eq!(returns[0].description.as_deref(), Some("Citation-backed answer"));
+            assert_eq!(
+                returns[0].description.as_deref(),
+                Some("Citation-backed answer")
+            );
             assert_eq!(returns[1].name, "quality");
             assert_eq!(returns[1].return_type.as_deref(), Some("enum"));
-            assert_eq!(returns[1].values.as_deref(), Some("answered|partial|unanswered"));
+            assert_eq!(
+                returns[1].values.as_deref(),
+                Some("answered|partial|unanswered")
+            );
             assert!(returns[1].description.is_none());
         } else {
             panic!("expected InterfaceDefinition");
@@ -2443,12 +2469,19 @@ mod tests {
 
     #[test]
     fn test_interface_with_reads_writes() {
-        let doc = parse(r#"<skill define="interface" name="brain-query">
+        let doc = parse(
+            r#"<skill define="interface" name="brain-query">
   <reads>wiki/index.md, wiki/**/*.md</reads>
   <writes>raw/brain-questions.md</writes>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { reads, writes, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::InterfaceDefinition { reads, writes, .. },
+            ..
+        } = &doc.nodes[0]
+        {
             let r = reads.as_ref().unwrap();
             assert_eq!(r.patterns, vec!["wiki/index.md", "wiki/**/*.md"]);
             let w = writes.as_ref().unwrap();
@@ -2460,11 +2493,26 @@ mod tests {
 
     #[test]
     fn test_interface_text_only_body_backward_compat() {
-        let doc = parse(r#"<skill define="interface" name="unit-testing">
+        let doc = parse(
+            r#"<skill define="interface" name="unit-testing">
   Execute automated tests and report results.
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { params, returns, reads, writes, .. }, children, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind:
+                NodeKind::InterfaceDefinition {
+                    params,
+                    returns,
+                    reads,
+                    writes,
+                    ..
+                },
+            children,
+            ..
+        } = &doc.nodes[0]
+        {
             assert!(params.is_empty());
             assert!(returns.is_empty());
             assert!(reads.is_none());
@@ -2481,12 +2529,19 @@ mod tests {
 
     #[test]
     fn test_interface_self_closing_params() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   <param name="x" type="number" />
   <param name="y" type="boolean" default="false" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { params, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::InterfaceDefinition { params, .. },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(params.len(), 2);
             assert_eq!(params[0].name, "x");
             assert!(params[0].description.is_none());
@@ -2498,20 +2553,33 @@ mod tests {
 
     #[test]
     fn test_interface_mixed_text_and_declarations() {
-        let doc = parse(r#"<skill define="interface" name="test">
+        let doc = parse(
+            r#"<skill define="interface" name="test">
   A capability that answers questions.
   <param name="question" type="string" required="true">The question</param>
   <returns name="answer" type="string" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { params, returns, .. }, children, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::InterfaceDefinition {
+                params, returns, ..
+            },
+            children,
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(params.len(), 1);
             assert_eq!(returns.len(), 1);
             // Text body should still be present
-            let text: String = children.iter().filter_map(|n| match n {
-                Node::Text(t) => Some(t.as_str()),
-                _ => None,
-            }).collect();
+            let text: String = children
+                .iter()
+                .filter_map(|n| match n {
+                    Node::Text(t) => Some(t.as_str()),
+                    _ => None,
+                })
+                .collect();
             assert!(text.contains("A capability that answers questions"));
         } else {
             panic!("expected InterfaceDefinition");
@@ -2521,12 +2589,20 @@ mod tests {
     #[test]
     fn test_invocation_params_unchanged() {
         // Invocation params should still work the old way (name + value, no type metadata)
-        let doc = parse(r#"<skill interface="testing" language="python">
+        let doc = parse(
+            r#"<skill interface="testing" language="python">
   <param name="target">src/auth.py</param>
   Run tests for this module.
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::Invocation { .. }, params, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::Invocation { .. },
+            params,
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(params.len(), 1);
             assert_eq!(params[0].name, "target");
             assert_eq!(params[0].value, "src/auth.py");
@@ -2547,14 +2623,32 @@ mod tests {
   <writes>raw/brain-questions.md</writes>
 </skill>"#).unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { name, params, returns, reads, writes, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind:
+                NodeKind::InterfaceDefinition {
+                    name,
+                    params,
+                    returns,
+                    reads,
+                    writes,
+                    ..
+                },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(name, "brain-query");
             assert_eq!(params.len(), 3);
             assert_eq!(returns.len(), 2);
             assert!(reads.is_some());
             assert!(writes.is_some());
-            assert_eq!(reads.as_ref().unwrap().patterns, vec!["wiki/index.md", "wiki/**/*.md"]);
-            assert_eq!(writes.as_ref().unwrap().patterns, vec!["raw/brain-questions.md"]);
+            assert_eq!(
+                reads.as_ref().unwrap().patterns,
+                vec!["wiki/index.md", "wiki/**/*.md"]
+            );
+            assert_eq!(
+                writes.as_ref().unwrap().patterns,
+                vec!["raw/brain-questions.md"]
+            );
         } else {
             panic!("expected InterfaceDefinition");
         }
@@ -2562,20 +2656,37 @@ mod tests {
 
     #[test]
     fn test_parse_interface_with_skill_refs_and_tool_constraints() {
-        let doc = parse(r#"<skill define="interface" name="brain-query">
+        let doc = parse(
+            r#"<skill define="interface" name="brain-query">
   <param name="question" type="string" required="true">The question</param>
   <skill ref="dde" role="enforcement" />
   <tool allow="rename_session,view,edit" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { name, skill_refs, tool_constraints, params, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind:
+                NodeKind::InterfaceDefinition {
+                    name,
+                    skill_refs,
+                    tool_constraints,
+                    params,
+                    ..
+                },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(name, "brain-query");
             assert_eq!(params.len(), 1);
             assert_eq!(skill_refs.len(), 1);
             assert_eq!(skill_refs[0].ref_name, "dde");
             assert_eq!(skill_refs[0].role, Some("enforcement".to_string()));
             assert_eq!(tool_constraints.len(), 1);
-            assert_eq!(tool_constraints[0].allow, vec!["rename_session", "view", "edit"]);
+            assert_eq!(
+                tool_constraints[0].allow,
+                vec!["rename_session", "view", "edit"]
+            );
             assert!(tool_constraints[0].deny.is_empty());
         } else {
             panic!("expected InterfaceDefinition");
@@ -2584,11 +2695,20 @@ mod tests {
 
     #[test]
     fn test_parse_interface_tool_deny() {
-        let doc = parse(r#"<skill define="interface" name="locked">
+        let doc = parse(
+            r#"<skill define="interface" name="locked">
   <tool deny="bash,exec" />
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::InterfaceDefinition { tool_constraints, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::InterfaceDefinition {
+                tool_constraints, ..
+            },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(tool_constraints.len(), 1);
             assert!(tool_constraints[0].allow.is_empty());
             assert_eq!(tool_constraints[0].deny, vec!["bash", "exec"]);
@@ -2599,7 +2719,8 @@ mod tests {
 
     #[test]
     fn test_parse_implementation_with_nodes() {
-        let doc = parse(r#"<skill define="implementation" name="brain-impl" implements="brain-query">
+        let doc = parse(
+            r#"<skill define="implementation" name="brain-impl" implements="brain-query">
   <node name="Rename" type="tool">
     <tool use="rename_session" />
     Rename this session
@@ -2607,9 +2728,15 @@ mod tests {
   <node name="Synthesise" type="prompt">
     Drill into pages and synthesise answer
   </node>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::ImplementationDefinition { name, nodes, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::ImplementationDefinition { name, nodes, .. },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(name, "brain-impl");
             assert_eq!(nodes.len(), 2);
             assert_eq!(nodes[0].name, "Rename");
@@ -2626,11 +2753,18 @@ mod tests {
 
     #[test]
     fn test_parse_implementation_no_nodes() {
-        let doc = parse(r#"<skill define="implementation" name="simple-impl" implements="test-skill">
+        let doc = parse(
+            r#"<skill define="implementation" name="simple-impl" implements="test-skill">
   Just a text implementation body with no structured nodes.
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::ImplementationDefinition { name, nodes, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind: NodeKind::ImplementationDefinition { name, nodes, .. },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(name, "simple-impl");
             assert!(nodes.is_empty());
         } else {
@@ -2640,7 +2774,8 @@ mod tests {
 
     #[test]
     fn test_parse_wrapping_skill_ref_extracts_nodes() {
-        let doc = parse(r#"<skill define="implementation" name="brain-handler" implements="brain-query">
+        let doc = parse(
+            r#"<skill define="implementation" name="brain-handler" implements="brain-query">
   <skill ref="dde" role="enforcement">
     ```mermaid
     flowchart LR
@@ -2656,15 +2791,32 @@ mod tests {
       Drill into candidate pages
     </node>
   </skill>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::ImplementationDefinition { name, nodes, skill_refs, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind:
+                NodeKind::ImplementationDefinition {
+                    name,
+                    nodes,
+                    skill_refs,
+                    ..
+                },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(name, "brain-handler");
             assert_eq!(skill_refs.len(), 1);
             assert_eq!(skill_refs[0].ref_name, "dde");
             assert_eq!(skill_refs[0].role, Some("enforcement".to_string()));
             // Nodes should be extracted from inside the wrapping <skill ref>
-            assert_eq!(nodes.len(), 2, "expected 2 nodes extracted from wrapping skill ref, got {}", nodes.len());
+            assert_eq!(
+                nodes.len(),
+                2,
+                "expected 2 nodes extracted from wrapping skill ref, got {}",
+                nodes.len()
+            );
             assert_eq!(nodes[0].name, "Rename");
             assert_eq!(nodes[0].node_type, crate::ast::NodeType::Tool);
             assert_eq!(nodes[0].tool_use, Some("rename_session".to_string()));
@@ -2677,12 +2829,22 @@ mod tests {
 
     #[test]
     fn test_parse_self_closing_skill_ref_in_implementation() {
-        let doc = parse(r#"<skill define="implementation" name="impl1" implements="test">
+        let doc = parse(
+            r#"<skill define="implementation" name="impl1" implements="test">
   <skill ref="dde" />
   <node name="Step1" type="prompt">Do something</node>
-</skill>"#).unwrap();
+</skill>"#,
+        )
+        .unwrap();
 
-        if let Node::Skill { kind: NodeKind::ImplementationDefinition { skill_refs, nodes, .. }, .. } = &doc.nodes[0] {
+        if let Node::Skill {
+            kind:
+                NodeKind::ImplementationDefinition {
+                    skill_refs, nodes, ..
+                },
+            ..
+        } = &doc.nodes[0]
+        {
             assert_eq!(skill_refs.len(), 1);
             assert_eq!(skill_refs[0].ref_name, "dde");
             assert_eq!(nodes.len(), 1);

@@ -126,7 +126,16 @@ impl AmlRegistry {
     #[pyo3(signature = (name, description=None))]
     fn register_interface(&mut self, name: String, description: Option<String>) -> PyResult<()> {
         self.inner
-            .register_interface(name, description, Vec::new(), Vec::new(), None, None, Vec::new(), Vec::new())
+            .register_interface(
+                name,
+                description,
+                Vec::new(),
+                Vec::new(),
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
+            )
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -142,7 +151,15 @@ impl AmlRegistry {
         priority: i32,
     ) -> PyResult<()> {
         self.inner
-            .register_implementation(name, implements, language, framework, description, priority, Vec::new())
+            .register_implementation(
+                name,
+                implements,
+                language,
+                framework,
+                description,
+                priority,
+                Vec::new(),
+            )
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
