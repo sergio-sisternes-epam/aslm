@@ -13,4 +13,4 @@ pub use executor::{ExecutionContext, ExecutionError, SkillHandler, SkillResult, 
 pub use parser::{parse, ParseError};
 pub use registry::{RegistryError, SkillRegistry};
 pub use resolver::{resolve, ResolutionHints, ResolveError};
-pub use validator::{validate, ValidationError};
+pub use validator::{validate, Severity, ValidationError};

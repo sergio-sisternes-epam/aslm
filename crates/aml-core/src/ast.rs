@@ -142,6 +142,8 @@ pub struct SessionDirective {
     pub name: Option<String>,
     /// Whether the session is isolated from the parent (default true).
     pub isolated: Option<bool>,
+    /// Failure propagation mode for child errors.
+    pub on_failure: Option<FailureMode>,
 }
 
 /// Agent execution mode.
@@ -180,6 +182,8 @@ pub struct AgentDirective {
     pub model: Option<String>,
     /// Execution mode (default: sync).
     pub mode: Option<AgentMode>,
+    /// Failure propagation mode for child errors.
+    pub on_failure: Option<FailureMode>,
 }
 
 /// The kind of directive tag.

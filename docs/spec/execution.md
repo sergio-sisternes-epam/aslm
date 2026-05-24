@@ -238,11 +238,56 @@ by a placeholder or the result is delivered out-of-band.
 
 ### Directive Failure
 
-Directives inherit the parent's `on-failure` mode. If a directive's children
-fail:
-- The failure propagates through the directive node to the parent.
-- The directive itself does not have `retries` or `on-failure` attributes;
-  these are set on the enclosing `<skill>` if needed.
+Directives support the `on-failure` attribute on `<session>` and `<agent>` tags.
+This controls how child failures propagate:
+
+- `on-failure="halt"` (default) — any child failure propagates immediately,
+  halting the directive and returning an error to the parent.
+- `on-failure="skip"` — child failures are silently suppressed; the directive
+  produces output only from successful children.
+- `on-failure="partial"` — child failures are captured inline as
+  `[DIRECTIVE FAILED: <error>]` markers; execution continues.
+
+The `<tool>` tag does **not** support `on-failure` because it is a scope
+constraint, not an execution unit — it has nothing to "fail" on its own.
+
+```xml
+<session name="resilient" on-failure="skip">
+  <skill interface="flaky-service">request</skill>
+</session>
+
+<agent name="reviewer" on-failure="partial">
+  <skill interface="code-review">code</skill>
+</agent>
+```
+
+### Tool Constraint Composition
+
+Nested `<tool>` directives compose **monotonically** — inner scopes can only
+further restrict, never widen, the available tool set.
+
+**Composition rules:**
+
+| Pattern | Rule | Example |
+|---|---|---|
+| Allow ∩ Allow | Intersection of allow-lists | `allow="a,b,c"` → `allow="b,c,d"` → effective: `{b,c}` |
+| Deny ∪ Deny | Union of deny-lists | `deny="a"` → `deny="b"` → effective deny: `{a,b}` |
+| Allow + Deny | Allow first, then deny removes | `allow="a,b,c"` → `deny="b"` → effective: `{a,c}` |
+| Deny beats Allow | A tool denied at any ancestor is permanently denied | `deny="bash"` → `allow="bash,grep"` → effective: `{grep}` |
+
+**Validator behaviour:** The validator emits **warnings** (not errors) when an
+inner `<tool>` requests tools that are denied or absent at an ancestor level.
+These warnings are advisory — the runtime may have legitimate reasons for
+seemingly contradictory constraints.
+
+```xml
+<!-- Valid but produces a warning: web_search not in ancestor's allow-list -->
+<tool allow="grep,view,bash">
+  <tool allow="grep,web_search">
+    <skill interface="search">query</skill>
+  </tool>
+</tool>
+```
 
 ### Depth limit
 

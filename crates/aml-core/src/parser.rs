@@ -656,6 +656,23 @@ fn build_node_kind(attrs: &HashMap<String, String>, offset: usize) -> Result<Nod
     }
 }
 
+fn parse_on_failure(
+    attrs: &HashMap<String, String>,
+    offset: usize,
+) -> Result<Option<FailureMode>, ParseError> {
+    attrs
+        .get("on-failure")
+        .map(|s| {
+            FailureMode::parse(s).ok_or_else(|| ParseError {
+                message: format!(
+                    "invalid on-failure value: '{s}' (expected halt, skip, or partial)"
+                ),
+                span: Span::new(offset, offset + 20),
+            })
+        })
+        .transpose()
+}
+
 fn build_directive_kind(
     tag_name: TagName,
     attrs: &HashMap<String, String>,
@@ -692,7 +709,7 @@ fn build_directive_kind(
                 })
                 .transpose()?;
 
-            Ok(DirectiveKind::Session(SessionDirective { name, isolated }))
+            Ok(DirectiveKind::Session(SessionDirective { name, isolated, on_failure: parse_on_failure(&attrs, offset)? }))
         }
         TagName::Agent => {
             let name = attrs.get("name").cloned().ok_or_else(|| ParseError {
@@ -712,7 +729,7 @@ fn build_directive_kind(
                 })
                 .transpose()?;
 
-            Ok(DirectiveKind::Agent(AgentDirective { name, model, mode }))
+            Ok(DirectiveKind::Agent(AgentDirective { name, model, mode, on_failure: parse_on_failure(&attrs, offset)? }))
         }
         _ => Err(ParseError {
             message: format!(

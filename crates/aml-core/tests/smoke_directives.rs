@@ -12,7 +12,7 @@ use aml_core::ast::{
 use aml_core::executor::{ExecutionContext, SkillResult, SkillStatus};
 use aml_core::parser::parse;
 use aml_core::registry::SkillRegistry;
-use aml_core::validator::validate;
+use aml_core::validator::{validate, Severity};
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -147,7 +147,7 @@ fn smoke_parse_complex_document() {
     // Verify the session directive structure
     if let Node::Directive { kind, children, .. } = &directives[0] {
         match kind {
-            DirectiveKind::Session(SessionDirective { name, isolated }) => {
+            DirectiveKind::Session(SessionDirective { name, isolated, .. }) => {
                 assert_eq!(name.as_deref(), Some("review-pipeline"));
                 assert_eq!(*isolated, Some(true));
             }
@@ -335,6 +335,7 @@ fn smoke_sibling_directives() {
 
 /// Outer tool sets a broad allowlist; inner tool narrows it further.
 /// A conforming runtime would intersect the two: only `grep` survives.
+/// The validator warns that `web_search` is outside the ancestor's allow-list.
 #[test]
 fn smoke_nested_tools_narrowing() {
     let ctx = build_context();
@@ -345,7 +346,18 @@ fn smoke_nested_tools_narrowing() {
 </tool>"#;
     let doc = parse(input).expect("parse should succeed");
     let errors = validate(&doc.nodes);
-    assert!(errors.is_empty(), "nested tools should be valid: {:?}", errors);
+
+    // Should produce a warning (not error) about web_search
+    let warnings: Vec<_> = errors.iter()
+        .filter(|e| e.severity == Severity::Warning)
+        .collect();
+    assert_eq!(warnings.len(), 1, "expected 1 warning about web_search: {:?}", errors);
+    assert!(warnings[0].message.contains("web_search"), "warning should mention web_search");
+
+    let hard_errors: Vec<_> = errors.iter()
+        .filter(|e| e.severity == Severity::Error)
+        .collect();
+    assert!(hard_errors.is_empty(), "no hard errors expected");
 
     let result = ctx.execute(&doc).expect("execution should succeed");
     assert!(result.contains("[reviewed:"), "skill should execute through nested tools");

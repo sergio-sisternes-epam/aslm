@@ -77,7 +77,7 @@ DenyAttr       ::= 'deny' '=' QuotedString        # comma-separated tool names
 # Executes enclosed content in a separate session.
 SessionDirective ::= '<session' SessionAttrs? '>' DirectiveBody '</session>'
                    | '<session' SessionAttrs? '/>'
-SessionAttrs     ::= (SessionNameAttr | IsolatedAttr)*
+SessionAttrs     ::= (SessionNameAttr | IsolatedAttr | OnFailureAttr)*
 SessionNameAttr  ::= 'name' '=' QuotedString
 IsolatedAttr     ::= 'isolated' '=' QuotedString  # "true" or "false"
 
@@ -88,12 +88,22 @@ AgentDirective   ::= '<agent' AgentAttrs '>' DirectiveBody '</agent>'
                    | '<agent' AgentAttrs '/>'
 AgentAttrs       ::= AgentNameAttr AgentOptAttrs*
 AgentNameAttr    ::= 'name' '=' QuotedString
-AgentOptAttrs    ::= ModelAttr | ModeAttr
+AgentOptAttrs    ::= ModelAttr | ModeAttr | OnFailureAttr
 ModelAttr        ::= 'model' '=' QuotedString
 ModeAttr         ::= 'mode' '=' QuotedString      # "sync" or "background"
 
 # Directive body may contain any AML content.
 DirectiveBody  ::= (Text | SkillNode | DirectiveNode)*
+
+# Shared attribute used by invocations, sessions, and agents.
+OnFailureAttr  ::= 'on-failure' '=' QuotedString  # "halt", "skip", or "partial"
+
+# --- TOOL CONSTRAINT COMPOSITION ---
+# Nested <tool> directives compose monotonically:
+#   - allow-lists intersect: inner ∩ outer
+#   - deny-lists union: inner ∪ outer
+#   - deny always beats allow (a tool denied at any ancestor is permanently denied)
+#   - inner scopes can only further restrict, never widen, the tool set
 
 # --- ATTRIBUTE VALIDATION RULES ---
 # These combinations are INVALID and must be rejected:

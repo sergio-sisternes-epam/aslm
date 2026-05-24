@@ -162,6 +162,35 @@ The `<tool>` directive restricts tool access for descendants. It can only
 If a tool constraint requests a tool denied by the host policy, execution
 fails with `AuthorisationError::ToolDenied`.
 
+#### The `bash` Loophole
+
+> **Security note:** The `bash` tool is effectively a superuser tool. When
+> `bash` is in an allow-list, an agent can bypass other tool restrictions
+> by using shell commands instead — for example, `sed -i` substitutes for
+> `edit`, `curl` substitutes for `web_fetch`, and arbitrary file operations
+> are possible.
+>
+> **Recommendations for runtime implementers:**
+> - Consider whether `bash` should be allowed at all in security-sensitive
+>   contexts.
+> - If `bash` is required, consider a sandboxed bash with filesystem
+>   restrictions, network isolation, or command whitelisting.
+> - A read-only reviewer agent should use `allow="grep,view"` without
+>   `bash` to enforce a genuine read-only posture.
+
+#### Nested Tool Constraint Composition
+
+Nested `<tool>` directives compose monotonically. The fundamental invariant
+is: **inner scopes can only further restrict, never widen, the tool set.**
+
+- Allow-lists **intersect**: a tool must be allowed at every level.
+- Deny-lists **union**: a tool denied at any level is denied everywhere below.
+- **Deny always beats allow**: an inner `allow` cannot reinstate a tool that
+  an ancestor `deny` removed.
+
+This model mirrors OS security: a child process cannot grant itself privileges
+that the parent did not possess.
+
 ### Session Isolation
 
 The `<session>` directive creates an execution boundary. In isolated mode

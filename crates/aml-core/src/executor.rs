@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{Document, ExecutionPolicy, FailureMode, Node, NodeKind};
+use crate::ast::{DirectiveKind, Document, ExecutionPolicy, FailureMode, Node, NodeKind};
 use crate::registry::SkillRegistry;
 use crate::resolver::{self, ResolutionHints, ResolveError};
 
@@ -100,13 +100,27 @@ impl ExecutionContext {
     fn execute_node(&self, node: &Node) -> Result<String, ExecutionError> {
         match node {
             Node::Text(text) => Ok(text.clone()),
-            Node::Directive { children, .. } => {
+            Node::Directive { kind, children, .. } => {
                 // Directives pass through: execute children and concatenate results.
                 // Runtime-specific behaviour (tool constraints, session isolation,
                 // agent delegation) is handled by the harness, not the core executor.
+                let on_failure = match kind {
+                    DirectiveKind::Session(s) => s.on_failure.unwrap_or(FailureMode::Halt),
+                    DirectiveKind::Agent(a) => a.on_failure.unwrap_or(FailureMode::Halt),
+                    DirectiveKind::Tool(_) => FailureMode::Halt,
+                };
                 let mut output = String::new();
                 for child in children {
-                    output.push_str(&self.execute_node(child)?);
+                    match self.execute_node(child) {
+                        Ok(text) => output.push_str(&text),
+                        Err(e) => match on_failure {
+                            FailureMode::Halt => return Err(e),
+                            FailureMode::Skip => {}
+                            FailureMode::Partial => {
+                                output.push_str(&format!("[DIRECTIVE FAILED: {e}]"));
+                            }
+                        },
+                    }
                 }
                 Ok(output)
             }
@@ -423,5 +437,71 @@ mod tests {
         .unwrap();
         let result = ctx.execute(&doc).unwrap();
         assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn test_agent_on_failure_skip() {
+        let mut registry = SkillRegistry::new();
+        registry.register_interface("failing".into(), None).unwrap();
+        registry
+            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0)
+            .unwrap();
+
+        let mut ctx = ExecutionContext::new(registry);
+        ctx.register_handler(
+            "fail-impl",
+            Box::new(|_name, _params, _scope| Err("always fails".to_string())),
+        );
+
+        let doc = parse(
+            r#"before <agent name="worker" on-failure="skip"><skill interface="failing">x</skill></agent> after"#,
+        )
+        .unwrap();
+        let result = ctx.execute(&doc).unwrap();
+        assert_eq!(result, "before  after");
+    }
+
+    #[test]
+    fn test_session_on_failure_partial() {
+        let mut registry = SkillRegistry::new();
+        registry.register_interface("failing".into(), None).unwrap();
+        registry
+            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0)
+            .unwrap();
+
+        let mut ctx = ExecutionContext::new(registry);
+        ctx.register_handler(
+            "fail-impl",
+            Box::new(|_name, _params, _scope| Err("broken".to_string())),
+        );
+
+        let doc = parse(
+            r#"<session name="s1" on-failure="partial"><skill interface="failing">x</skill></session>"#,
+        )
+        .unwrap();
+        let result = ctx.execute(&doc).unwrap();
+        assert!(result.contains("DIRECTIVE FAILED"), "partial mode should include failure text: {result}");
+    }
+
+    #[test]
+    fn test_agent_on_failure_halt() {
+        let mut registry = SkillRegistry::new();
+        registry.register_interface("failing".into(), None).unwrap();
+        registry
+            .register_implementation("fail-impl".into(), "failing".into(), None, None, None, 0)
+            .unwrap();
+
+        let mut ctx = ExecutionContext::new(registry);
+        ctx.register_handler(
+            "fail-impl",
+            Box::new(|_name, _params, _scope| Err("always fails".to_string())),
+        );
+
+        let doc = parse(
+            r#"<agent name="worker" on-failure="halt"><skill interface="failing">x</skill></agent>"#,
+        )
+        .unwrap();
+        let result = ctx.execute(&doc);
+        assert!(result.is_err(), "halt mode should propagate error");
     }
 }

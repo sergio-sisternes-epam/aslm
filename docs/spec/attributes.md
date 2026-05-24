@@ -20,7 +20,7 @@ This document is the canonical reference for attribute semantics.
 | `retries` | uint | 0-10 | 0 | Invocation | No |
 | `timeout` | duration | e.g. "30s", "5m", "1h" | no timeout | Invocation | No |
 | `policy` | enum | `"bottom-up"`, `"wrapper"`, `"sequential"` | `"bottom-up"` | Invocation | No |
-| `on-failure` | enum | `"halt"`, `"skip"`, `"partial"` | `"halt"` | Invocation | No |
+| `on-failure` | enum | `"halt"`, `"skip"`, `"partial"` | `"halt"` | Invocation, SessionDirective, AgentDirective | No |
 | `allow` | string | comma-separated tool names | — | ToolDirective | No |
 | `deny` | string | comma-separated tool names | — | ToolDirective | No |
 | `isolated` | boolean | `"true"`, `"false"` | `"true"` | SessionDirective | No |

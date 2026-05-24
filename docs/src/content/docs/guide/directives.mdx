@@ -63,6 +63,7 @@ Execute content in a separate session with independent state:
 |---|---|---|---|
 | `name` | No | — | Session identifier |
 | `isolated` | No | `"true"` | Whether session state is isolated from the parent |
+| `on-failure` | No | `"halt"` | `"halt"`, `"skip"`, or `"partial"` — controls child failure propagation |
 
 ### Examples
 
@@ -97,6 +98,7 @@ Delegate execution to a specialised subagent:
 | `name` | Yes | — | Agent identifier (resolved against host registry) |
 | `model` | No | — | Model override (request, not guarantee) |
 | `mode` | No | `"sync"` | `"sync"` (blocking) or `"background"` (async) |
+| `on-failure` | No | `"halt"` | `"halt"`, `"skip"`, or `"partial"` — controls child failure propagation |
 
 ### Examples
 
@@ -152,3 +154,62 @@ Directives support self-closing syntax for empty scopes:
 - `<session>` creation is subject to host authorisation.
 - `model` on `<agent>` is a request — the host may override or deny it.
 - Directives inside definition bodies (`define="interface"` or `define="implementation"`) are invalid.
+
+## Failure Handling
+
+The `on-failure` attribute on `<session>` and `<agent>` controls how child
+failures propagate:
+
+```xml
+<!-- Skip failures silently -->
+<session name="best-effort" on-failure="skip">
+  <skill interface="optional-check">may fail safely</skill>
+</session>
+
+<!-- Capture failures inline -->
+<agent name="reviewer" on-failure="partial">
+  <skill interface="code-review">review this code</skill>
+</agent>
+```
+
+| Value | Behaviour |
+|---|---|
+| `halt` (default) | Propagate failure immediately — abort the directive |
+| `skip` | Suppress failures — produce output only from successful children |
+| `partial` | Capture failures inline as `[DIRECTIVE FAILED: ...]` markers |
+
+`<tool>` does not support `on-failure` — it constrains scope, not execution.
+
+## Tool Constraint Composition
+
+Nested `<tool>` directives compose monotonically. Inner scopes can only
+further restrict, never widen, the tool set:
+
+```xml
+<!-- Outer allows 4 tools; inner narrows to 2 -->
+<tool allow="grep,view,bash,glob">
+  <tool allow="grep,view">
+    <!-- Only grep and view available here -->
+    <skill interface="search">query</skill>
+  </tool>
+</tool>
+
+<!-- Deny at any level is permanent -->
+<tool deny="bash">
+  <tool allow="bash,grep">
+    <!-- bash is denied by ancestor — only grep is effective -->
+    <skill interface="search">query</skill>
+  </tool>
+</tool>
+```
+
+| Pattern | Rule |
+|---|---|
+| Allow ∩ Allow | Intersection — tool must be allowed at every level |
+| Deny ∪ Deny | Union — denied at any level means denied everywhere below |
+| Deny beats Allow | An inner allow cannot reinstate a tool denied by an ancestor |
+
+> **Security note:** `bash` is effectively a superuser tool — an agent with
+> bash access can bypass file-level tool constraints using shell commands
+> (e.g. `sed -i` instead of `edit`). For read-only review contexts,
+> prefer `allow="grep,view"` without `bash`.
