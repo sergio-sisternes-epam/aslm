@@ -103,8 +103,13 @@ impl ToolConstraints {
         let name_s = name.to_string();
 
         if self.denied.contains(&name_s) {
+            let source = if parent.denied.contains(&name_s) {
+                "an ancestor"
+            } else {
+                "this"
+            };
             warnings.push(format!(
-                "tool '{name}' is requested but denied by an ancestor <tool> directive"
+                "tool '{name}' is requested but denied by {source} <tool> directive"
             ));
         }
         if let Some(parent_allowed) = &parent.allowed {
@@ -756,5 +761,31 @@ mod tests {
         assert_eq!(warnings.len(), 1,
             "denied name should produce exactly 1 warning, not 2: {:?}", warnings);
         assert!(warnings[0].contains("denied"));
+    }
+
+    #[test]
+    fn test_same_node_name_deny_says_this_directive() {
+        // <tool name="bash" deny="bash"> — warning should say "this" not "ancestor"
+        let root = ToolConstraints::default();
+        let tool = ToolDirective { name: Some("bash".into()), allow: None, deny: Some("bash".into()) };
+        let (result, warnings) = root.apply(&tool);
+        assert_eq!(warnings.len(), 1, "expected 1 warning: {:?}", warnings);
+        assert!(warnings[0].contains("this <tool> directive"),
+            "should say 'this' not 'ancestor': {}", warnings[0]);
+        assert!(result.allowed.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_ancestor_deny_says_ancestor_directive() {
+        // parent deny="bash" → child name="bash" — warning should say "ancestor"
+        let parent = ToolConstraints {
+            allowed: None,
+            denied: vec!["bash".into()],
+        };
+        let tool = ToolDirective { name: Some("bash".into()), allow: None, deny: None };
+        let (_, warnings) = parent.apply(&tool);
+        assert_eq!(warnings.len(), 1, "expected 1 warning: {:?}", warnings);
+        assert!(warnings[0].contains("an ancestor"),
+            "should say 'ancestor': {}", warnings[0]);
     }
 }
