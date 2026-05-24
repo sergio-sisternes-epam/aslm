@@ -100,6 +100,16 @@ impl ExecutionContext {
     fn execute_node(&self, node: &Node) -> Result<String, ExecutionError> {
         match node {
             Node::Text(text) => Ok(text.clone()),
+            Node::Directive { children, .. } => {
+                // Directives pass through: execute children and concatenate results.
+                // Runtime-specific behaviour (tool constraints, session isolation,
+                // agent delegation) is handled by the harness, not the core executor.
+                let mut output = String::new();
+                for child in children {
+                    output.push_str(&self.execute_node(child)?);
+                }
+                Ok(output)
+            }
             Node::Skill {
                 kind,
                 params,
@@ -261,6 +271,9 @@ impl ExecutionContext {
                     // In wrapper mode, skill tags are passed as-is (text representation)
                     output.push_str("[nested-skill]");
                 }
+                Node::Directive { .. } => {
+                    output.push_str("[nested-directive]");
+                }
             }
         }
         output
@@ -380,5 +393,35 @@ mod tests {
         let doc = parse(r#"<skill interface="failing">content</skill>"#).unwrap();
         let result = ctx.execute(&doc);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_directive_passthrough() {
+        let ctx = setup_context();
+        let doc = parse(r#"<tool name="bash">plain text</tool>"#).unwrap();
+        let result = ctx.execute(&doc).unwrap();
+        assert_eq!(result, "plain text");
+    }
+
+    #[test]
+    fn test_directive_with_nested_skill() {
+        let ctx = setup_context();
+        let doc = parse(
+            r#"<agent name="dev"><skill interface="testing" language="python">my code</skill></agent>"#,
+        )
+        .unwrap();
+        let result = ctx.execute(&doc).unwrap();
+        assert_eq!(result, "[tested: my code]");
+    }
+
+    #[test]
+    fn test_nested_directives() {
+        let ctx = setup_context();
+        let doc = parse(
+            r#"<session name="s1"><tool name="bash">hello</tool></session>"#,
+        )
+        .unwrap();
+        let result = ctx.execute(&doc).unwrap();
+        assert_eq!(result, "hello");
     }
 }

@@ -5,7 +5,10 @@ pub mod registry;
 pub mod resolver;
 pub mod validator;
 
-pub use ast::{Document, ExecutionPolicy, FailureMode, Node, NodeKind, Param, Span};
+pub use ast::{
+    AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, Node,
+    NodeKind, Param, SessionDirective, Span, ToolDirective,
+};
 pub use executor::{ExecutionContext, ExecutionError, SkillHandler, SkillResult, SkillStatus};
 pub use parser::{parse, ParseError};
 pub use registry::{RegistryError, SkillRegistry};

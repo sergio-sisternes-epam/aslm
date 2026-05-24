@@ -186,6 +186,64 @@ struct ExecutionContext {
 }
 ```
 
+## Directive Execution
+
+Directive nodes (`<tool>`, `<session>`, `<agent>`) participate in the execution
+tree but behave differently from skill invocations.
+
+### `<tool>` — Scope Directive
+
+The `<tool>` tag constrains which tools are available to descendants. It does
+**not** execute anything itself. Children execute normally under the tool
+constraint; results flow upward as text.
+
+```xml
+<tool name="bash">
+  <skill interface="run-tests">test suite</skill>
+</tool>
+```
+
+The executor processes `<tool>` as pass-through: children execute, results
+concatenate. The runtime harness enforces the tool constraint.
+
+### `<session>` — Execution Directive
+
+The `<session>` tag runs its children in a separate execution context. The
+result is the concatenated output of the children, injected in place of the
+`<session>` tag.
+
+```xml
+<session name="backend" isolated="true">
+  <skill interface="deploy">backend service</skill>
+</session>
+```
+
+In isolated mode (default), child execution does not share state with the
+parent. In non-isolated mode (`isolated="false"`), state may be shared.
+
+### `<agent>` — Execution Directive
+
+The `<agent>` tag delegates execution to a subagent. The subagent receives
+the content as its prompt and returns a result that replaces the tag.
+
+```xml
+<agent name="reviewer" model="gpt-4">
+  <skill interface="code-review">fn main() {}</skill>
+</agent>
+```
+
+In `mode="sync"` (default), execution blocks until the agent completes.
+In `mode="background"`, the agent runs asynchronously; the tag is replaced
+by a placeholder or the result is delivered out-of-band.
+
+### Directive Failure
+
+Directives inherit the parent's `on-failure` mode. If a directive's children
+fail:
+- The failure propagates through the directive node to the parent.
+- The directive itself does not have `retries` or `on-failure` attributes;
+  these are set on the enclosing `<skill>` if needed.
+
 ### Depth limit
 
 To prevent infinite recursion (e.g. a skill that emits AML which gets re-parsed),

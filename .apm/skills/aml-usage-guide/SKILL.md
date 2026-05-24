@@ -107,6 +107,59 @@ Here `fetch-url` runs first, its output becomes the scope for `summarise`.
 </skill>
 ```
 
+## Directives
+
+AML has three directive tags that control *how* content is executed:
+
+### `<tool>` — Tool Constraints
+
+Restrict which tools are available within a scope:
+
+```xml
+<tool allow="bash,grep">
+  <skill interface="search">find files</skill>
+</tool>
+```
+
+Attributes: `name` (single tool), `allow` (whitelist), `deny` (blacklist).
+`allow` and `deny` are mutually exclusive. At least one must be present.
+
+### `<session>` — Session Isolation
+
+Execute content in a separate session:
+
+```xml
+<session name="backend" isolated="true">
+  <skill interface="deploy">deploy service</skill>
+</session>
+```
+
+Attributes: `name` (optional), `isolated` (optional, default "true").
+
+### `<agent>` — Subagent Delegation
+
+Delegate execution to a subagent:
+
+```xml
+<agent name="reviewer" model="gpt-4" mode="sync">
+  <skill interface="code-review">fn main() {}</skill>
+</agent>
+```
+
+Attributes: `name` (required), `model` (optional), `mode` (optional: "sync"/"background").
+
+### Directive Nesting
+
+Directives nest freely with each other and with `<skill>`:
+
+```xml
+<agent name="dev">
+  <tool name="bash">
+    <skill interface="test">run tests</skill>
+  </tool>
+</agent>
+```
+
 ## Failure Handling
 
 ```xml
@@ -126,6 +179,9 @@ Here `fetch-url` runs first, its output becomes the scope for `summarise`.
 3. **Results are escaped** — skill output is never re-parsed as AML
 4. **Content is the scope** — everything between open/close tags is what the skill sees
 5. **Definitions don't execute** — they only register capabilities
+6. **Directives don't contain definitions** — definitions inside directives are invalid
+7. **Definitions don't contain directives** — directive tags inside definition bodies are invalid
+8. **Tool constraints only narrow** — `<tool>` cannot expand access beyond host policy
 
 ## When NOT to use AML
 

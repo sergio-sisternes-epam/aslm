@@ -80,6 +80,32 @@ Raised during Phase 5 (Execute).
 Retryable errors trigger the retry mechanism if `retries > 0`.
 Non-retryable errors immediately propagate per `on-failure` mode.
 
+### Authorisation Errors
+
+Raised during Phase 4b (Authorise). These indicate directive constraints
+that the host policy does not permit.
+
+| Error | Cause |
+|---|---|
+| `ToolDenied` | Requested tool is not permitted by host policy |
+| `SessionDenied` | Session creation is not permitted |
+| `AgentNotFound` | Named agent does not exist in the host's agent registry |
+| `ModelUnavailable` | Requested model is not available |
+
+Authorisation errors are **fatal for the node**. Propagation follows the
+enclosing skill's `on-failure` mode.
+
+### Directive Validation Errors
+
+Raised during Phase 2 (Validate) for directive-specific rules.
+
+| Error | Cause |
+|---|---|
+| `AllowDenyConflict` | `<tool>` has both `allow` and `deny` attributes |
+| `MissingDirectiveAttribute` | `<agent>` missing required `name` attribute |
+| `InvalidDirectiveValue` | `isolated` is not "true"/"false", `mode` is not "sync"/"background" |
+| `DirectiveInDefinition` | Directive tag found inside a definition body |
+
 ## Error Structure
 
 All errors share a common structure:

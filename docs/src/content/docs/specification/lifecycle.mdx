@@ -5,23 +5,26 @@ description: The six phases of AML processing.
 
 ## Pipeline
 
-AML processing follows a strict six-phase pipeline:
+AML processing follows a strict pipeline:
 
-1. **Parse** — Extract `<skill>` tags from input text, build AST
-2. **Validate** — Check attribute combinations, required fields
+1. **Parse** — Extract `<skill>`, `<tool>`, `<session>`, `<agent>` tags from input text, build AST
+2. **Validate** — Check attribute combinations, required fields, directive rules
 3. **Register** — Extract definition nodes, populate SkillRegistry
 4. **Resolve** — Map invocation nodes to concrete implementations
-5. **Execute** — Run skills bottom-up, inject results
-6. **Output** — Return final text with all skills replaced by results
+5. **Authorise** — Validate directive constraints against host policy
+6. **Execute** — Run skills bottom-up, process directives, inject results
+7. **Output** — Return final text with all tags replaced by results
 
 ## Phase Details
 
 ### Parse
-The parser is embedded-tolerant: it extracts `<skill>` tags from arbitrary prompt text. Non-tag `<` characters are treated as literal text.
+The parser is embedded-tolerant: it extracts `<skill>`, `<tool>`, `<session>`, and `<agent>` tags from arbitrary prompt text. Non-tag `<` characters are treated as literal text.
 
 ### Validate
 - Definition nodes must have required attributes (`name`, `implements`)
 - Invocations must have at least one resolution target
+- Directives must satisfy their own attribute rules (e.g. `allow`/`deny` mutual exclusivity)
+- Directives inside definition bodies are rejected
 - Attribute values are validated against allowed sets
 
 ### Register
@@ -30,8 +33,11 @@ Definition nodes are extracted and registered in the `SkillRegistry`. They produ
 ### Resolve
 Each invocation is resolved to a concrete implementation using the deterministic resolution algorithm.
 
+### Authorise
+Directive constraints (tool access, session creation, agent spawning) are validated against the host policy. This phase is implemented by the runtime harness.
+
 ### Execute
-Skills execute bottom-up by default. Results are injected as text replacements.
+Skills execute bottom-up by default. Directives execute their children and pass results through, with runtime-specific behaviour handled by the harness. Results are injected as text replacements.
 
 ### Output
 The final output is the original text with all `<skill>` tags replaced by their execution results.

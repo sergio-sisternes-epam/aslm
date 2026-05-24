@@ -7,19 +7,20 @@ inputs, outputs, and error conditions. Phases execute sequentially; no phase
 may be skipped.
 
 ```
-Input Prompt → Parse → Validate → Register Definitions → Resolve → Execute → Output
+Input Prompt → Parse → Validate → Register Definitions → Resolve → Authorise → Execute → Output
 ```
 
 ## Phase 1: Parse
 
 **Input**: Raw text string (the prompt or document containing AML tags).
 
-**Output**: Unvalidated AST (`Document` node containing `SkillNode` and `Text` nodes).
+**Output**: Unvalidated AST (`Document` node containing `SkillNode`, `DirectiveNode`, and `Text` nodes).
 
 **Behaviour**:
 - The parser tokenises AML tags within arbitrary prompt text.
+- Recognised tags: `<skill>`, `<param>`, `<tool>`, `<session>`, `<agent>`.
 - Non-AML text is preserved as `Text` nodes.
-- Nested `<skill>` tags produce nested `SkillNode` children.
+- Nested tags produce nested children.
 - `<param>` tags within a `<skill>` are attached to the parent node.
 - XML comments (`<!-- ... -->`) are stripped.
 - Escape sequences (`&lt;`, `&gt;`, `&amp;`, `&quot;`, `&apos;`) are decoded.
@@ -46,8 +47,11 @@ treated as literal text. The parser does NOT attempt to parse non-AML XML/HTML.
   - Invocation: at least one of `interface`, `impl`, `name`.
   - InterfaceDef: `define="interface"` + `name`.
   - ImplementationDef: `define="implementation"` + `name` + `implements`.
+  - ToolDirective: at least one of `name`, `allow`, `deny`. `allow` and `deny` are mutually exclusive.
+  - AgentDirective: `name` is required.
 - Verify `retries` parses as unsigned integer.
 - Verify `timeout` parses as duration string.
+- Verify directives do not appear inside definition bodies.
 - Flag unknown attributes as warnings (not errors) for forward compatibility.
 
 **Error conditions**:
@@ -112,6 +116,27 @@ document, resolution always produces the same binding (or the same error).
 - `ResolutionError::NoImplementation { interface, span }`
 - `ResolutionError::ImplInterfaceMismatch { impl_name, expected_interface, actual_interface, span }`
 
+## Phase 4b: Authorise
+
+**Input**: Resolved AST with directive nodes.
+
+**Output**: Authorised AST (all directive constraints validated against host policy).
+
+**Behaviour**:
+- For each `ToolDirective`: verify requested tools are permitted by the host's
+  execution policy. Denied tools produce `AuthorisationError`.
+- For each `SessionDirective`: verify session creation is permitted.
+- For each `AgentDirective`: verify the named agent exists in the host's agent
+  registry and the requested model (if any) is available.
+- Authorisation is performed by the runtime harness, not the core engine. The
+  core engine treats directives as pass-through.
+
+**Error conditions**:
+- `AuthorisationError::ToolDenied { tool, span }`
+- `AuthorisationError::SessionDenied { name, span }`
+- `AuthorisationError::AgentNotFound { name, span }`
+- `AuthorisationError::ModelUnavailable { model, span }`
+
 ## Phase 5: Execute
 
 **Input**: Resolved AST + `SkillRegistry` + execution context.
@@ -129,6 +154,11 @@ document, resolution always produces the same binding (or the same error).
   3. Receive a `SkillResult { text, metadata, status }`.
   4. Replace the `<skill>...</skill>` tag in the parent's content with `result.text`.
   5. Attach `result.metadata` to the execution trace (not injected into content).
+- For each `DirectiveNode`:
+  1. Execute children normally (results concatenate).
+  2. The runtime harness applies directive-specific behaviour (tool constraints,
+     session isolation, agent delegation).
+  3. The directive tag is replaced by the concatenated child output.
 - Definition nodes are skipped (marked non-executable in Phase 3).
 - Text nodes are passed through unchanged.
 
@@ -160,7 +190,9 @@ document, resolution always produces the same binding (or the same error).
 ## Invariants
 
 1. **Definitions never execute.** A `define=` node's body is descriptive text, never invoked.
-2. **Execution is bottom-up.** Inner skills complete before outer skills see their scope.
-3. **Results are escaped.** Injected text is NOT re-parsed for new AML tags.
-4. **Resolution is deterministic.** Same inputs → same outputs (or same errors).
-5. **Errors include spans.** Every error references the source location for tooling.
+2. **Definitions do not contain directives.** Directive nodes inside definition bodies are invalid.
+3. **Execution is bottom-up.** Inner skills complete before outer skills see their scope.
+4. **Results are escaped.** Injected text is NOT re-parsed for new AML tags.
+5. **Resolution is deterministic.** Same inputs → same outputs (or same errors).
+6. **Errors include spans.** Every error references the source location for tooling.
+7. **Directives are pass-through.** The core executor treats directives as transparent wrappers; runtime behaviour is harness-specific.
