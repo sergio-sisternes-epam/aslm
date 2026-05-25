@@ -13,6 +13,7 @@ This document is the canonical reference for attribute semantics.
 | `name` | string | 1-128 chars, `[a-z0-9-/]` | — | All node types | Yes (on definitions and Lookup invocations) |
 | `interface` | string | 1-128 chars, `[a-z0-9-/]` | — | Invocation | No |
 | `impl` | string | 1-128 chars, `[a-z0-9-/]` | — | Invocation | No |
+| `extends` | string | 1-128 chars, `[a-z0-9-/]` | — | InterfaceDef | No |
 | `implements` | string | 1-128 chars, `[a-z0-9-/]` | — | ImplementationDef | Yes |
 | `language` | string | free text, lowercase recommended | — | Invocation, ImplementationDef | No |
 | `framework` | string | free text, lowercase recommended | — | Invocation, ImplementationDef | No |
@@ -42,6 +43,9 @@ The following combinations are **invalid** and MUST be rejected during validatio
 | `name` + `interface` (on Invocation) | Use one resolution mode: name OR interface |
 | `name` + `impl` (on Invocation) | Use one resolution mode: name OR impl |
 | `allow` + `deny` (on ToolDirective) | Use one constraint mode: whitelist OR blacklist |
+| `extends` + `implements` (on InterfaceDef, different values) | Conflicting parent declarations |
+| `extends` on ImplementationDef or Invocation | `extends` is only valid on interface definitions |
+| `implements` on InterfaceDef | Deprecated — use `extends` instead (warning now, error in a future release) |
 
 ## Co-occurrence Rules
 
@@ -82,7 +86,47 @@ Directive tags are determined by tag name, not by attributes:
 Directives are **not** skill nodes. They instruct the runtime about execution
 environment — tool constraints, session isolation, or subagent delegation.
 
-## Name Format
+## `extends=` — Interface Inheritance
+
+The `extends` attribute expresses **interface inheritance** (specialisation):
+
+```xml
+<!-- Parent interface — top-level contract -->
+<skill define="interface" name="diagram-driven-execution">...</skill>
+
+<!-- Child interface — narrows the parent contract -->
+<skill define="interface" name="dde-simple"
+       extends="diagram-driven-execution">...</skill>
+
+<!-- Implementation realises the child interface — unchanged -->
+<skill define="implementation" name="dde-simple-impl"
+       implements="dde-simple">...</skill>
+```
+
+**Semantics:**
+
+- An interface with `extends` is still abstract and **cannot be invoked directly**.
+- The hierarchy is **metadata and validation only** — implementations registered for
+  a child interface are NOT automatically candidates for the parent interface at
+  resolution time. Use explicit `implements=` to link an implementation to each
+  interface it satisfies.
+- The `extends` graph MUST be acyclic. Cycles (including self-extension) are hard
+  errors detected by `SkillRegistry::validate()`.
+- The named parent MUST be a registered interface, or `SkillRegistry::validate()`
+  reports `ExtendsUnknownInterface`.
+
+**Difference from `implements=`:**
+
+| Attribute | Semantics | Valid on |
+|---|---|---|
+| `extends` | Interface ← Interface (specialisation) | `define="interface"` |
+| `implements` | Implementation ← Interface (realisation) | `define="implementation"` |
+
+Using `implements=` on an interface definition is **deprecated** (validation
+warning). Migrate to `extends=` to express interface inheritance. This will
+become a hard error in a future release.
+
+
 
 Names follow this pattern: `[a-z0-9]([a-z0-9-]*[a-z0-9])?(/[a-z0-9]([a-z0-9-]*[a-z0-9])?)?`
 

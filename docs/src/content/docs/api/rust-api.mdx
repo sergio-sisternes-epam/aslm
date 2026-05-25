@@ -21,7 +21,7 @@ let doc = parse(r#"<skill interface="testing">Run tests</skill>"#).unwrap();
 use aml_core::SkillRegistry;
 
 let mut registry = SkillRegistry::new();
-registry.register_interface("testing".into(), Some("Run tests".into())).unwrap();
+registry.register_interface("testing".into(), None, Some("Run tests".into())).unwrap();
 registry.register_implementation(
     "pytest-impl".into(),
     "testing".into(),

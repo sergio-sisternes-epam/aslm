@@ -289,6 +289,8 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
         }
         NodeKind::InterfaceDefinition {
             name,
+            extends,
+            legacy_implements,
             params,
             returns,
             reads,
@@ -303,6 +305,43 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                     span: Some(span),
                     severity: Severity::Error,
                 });
+            }
+            // Validate `extends` when present.
+            if let Some(ext) = extends {
+                if ext.is_empty() {
+                    errors.push(ValidationError {
+                        message: "extends attribute must be a non-empty interface name".to_string(),
+                        span: Some(span),
+                        severity: Severity::Error,
+                    });
+                }
+            }
+            // Emit deprecation warning when `implements=` was used on an interface node.
+            if let Some(leg) = legacy_implements {
+                match extends {
+                    Some(ext) if ext != leg => {
+                        // Both present with different values — semantic conflict.
+                        errors.push(ValidationError {
+                            message: format!(
+                                "interface definition has both extends=\"{ext}\" and \
+                                 implements=\"{leg}\"; use only extends= on interface nodes"
+                            ),
+                            span: Some(span),
+                            severity: Severity::Error,
+                        });
+                    }
+                    _ => {
+                        // Either only implements= or they agree — emit deprecation warning.
+                        errors.push(ValidationError {
+                            message: format!(
+                                "implements=\"{leg}\" on an interface definition is deprecated; \
+                                 use extends=\"{leg}\" instead"
+                            ),
+                            span: Some(span),
+                            severity: Severity::Warning,
+                        });
+                    }
+                }
             }
             validate_interface_declarations(params, returns, reads, writes, span, errors);
             validate_skill_refs(skill_refs, span, errors);
@@ -1733,5 +1772,94 @@ mod tests {
         assert!(errors
             .iter()
             .any(|e| e.message.contains("skill ref must have a non-empty name")));
+    }
+
+    // ── extends= tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extends_parsed_and_stored() {
+        let doc = parse(
+            r#"<skill define="interface" name="dde-simple" extends="diagram-driven-execution">
+</skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(
+            errors.is_empty(),
+            "unexpected errors on valid extends: {errors:?}"
+        );
+        if let Node::Skill {
+            kind: NodeKind::InterfaceDefinition { name, extends, .. },
+            ..
+        } = &doc.nodes[0]
+        {
+            assert_eq!(name, "dde-simple");
+            assert_eq!(extends.as_deref(), Some("diagram-driven-execution"));
+        } else {
+            panic!("expected InterfaceDefinition");
+        }
+    }
+
+    #[test]
+    fn test_extends_empty_value_is_error() {
+        let doc = parse(r#"<skill define="interface" name="child" extends=""></skill>"#).unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("extends attribute must be a non-empty")
+                    && e.severity == Severity::Error),
+            "expected error for empty extends; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_legacy_implements_on_interface_emits_warning() {
+        let doc = parse(
+            r#"<skill define="interface" name="child" implements="parent"></skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("deprecated") && e.severity == Severity::Warning),
+            "expected deprecation warning for implements= on interface; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_extends_and_implements_conflict_is_error() {
+        let doc = parse(
+            r#"<skill define="interface" name="child" extends="parentA" implements="parentB"></skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("extends=") && e.severity == Severity::Error),
+            "expected error for extends/implements conflict; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_extends_and_implements_same_value_emits_warning_only() {
+        let doc = parse(
+            r#"<skill define="interface" name="child" extends="parent" implements="parent"></skill>"#,
+        )
+        .unwrap();
+        let errors = validate(&doc.nodes);
+        // Should warn (deprecated) but not error
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.severity == Severity::Warning),
+            "expected deprecation warning; got: {errors:?}"
+        );
+        assert!(
+            !errors.iter().any(|e| e.severity == Severity::Error),
+            "unexpected error when extends and implements agree; got: {errors:?}"
+        );
     }
 }

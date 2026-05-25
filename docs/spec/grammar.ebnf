@@ -43,8 +43,9 @@ InterfaceDef   ::= '<skill' 'define' '=' '"interface"' 'name' '=' QuotedString I
                      InterfaceBody
                    '</skill>'
 
-InterfaceDefAttrs ::= DescriptionAttr?
+InterfaceDefAttrs ::= (DescriptionAttr | ExtendsAttr)*
 DescriptionAttr   ::= 'description' '=' QuotedString
+ExtendsAttr       ::= 'extends' '=' QuotedString     # parent interface name (interface inheritance)
 
 InterfaceBody  ::= (Text | ParamDecl | ReturnsDecl | ReadsDecl | WritesDecl | SkillRefDecl | ToolConstraintDecl)*
 
@@ -174,6 +175,11 @@ OnFailureAttr  ::= 'on-failure' '=' QuotedString  # "halt", "skip", or "partial"
 #   - <tool> without any of: name, allow, deny
 #   - <agent> without name
 #   - Directives inside definition bodies
+#   - extends + implements on InterfaceDef with different values (conflict)
+#   - extends with empty value on InterfaceDef
+#
+# These are DEPRECATED and emit a validation WARNING:
+#   - implements= on define="interface" nodes — use extends= instead
 
 # --- LEXICAL RULES ---
 QuotedString   ::= '"' [^"]* '"'                  # double-quoted only

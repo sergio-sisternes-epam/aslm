@@ -52,6 +52,13 @@ pub enum NodeKind {
     /// An interface definition — registered but not executed.
     InterfaceDefinition {
         name: String,
+        /// Parent interface name for interface inheritance (specialisation).
+        /// An interface with `extends` narrows the parent contract; it is still
+        /// abstract and cannot be invoked directly.
+        extends: Option<String>,
+        /// Captured from a legacy `implements=` attribute on an interface node.
+        /// The validator emits a deprecation warning when this is `Some`.
+        legacy_implements: Option<String>,
         description: Option<String>,
         /// Typed parameter declarations (empty for legacy text-only interfaces).
         params: Vec<ParamDecl>,

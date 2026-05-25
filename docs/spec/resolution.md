@@ -116,7 +116,22 @@ All resolution errors are **fatal for the node** — the node cannot execute.
 The executor's failure propagation rules (see `execution.md`) determine whether
 the error is fatal for the entire document.
 
-## Determinism Guarantee
+## Interface Inheritance and Resolution
+
+The `extends=` attribute on interface definitions expresses **interface
+specialisation** (UML-style interface inheritance). It is **metadata-only**
+with respect to resolution:
+
+- Implementations registered for a **child** interface are NOT automatically
+  considered candidates when resolving an invocation targeting the **parent**.
+- To make an implementation satisfy multiple interfaces in the hierarchy, register
+  it explicitly with `implements=` pointing to each interface it fulfils.
+
+This scoping is intentional for v1 — transitive resolution would require
+contract-compatibility rules (parameter sets, return types, tool constraints)
+that have not yet been defined. See ADR-011 for rationale.
+
+
 
 Given:
 - The same `SkillRegistry` state (same registered interfaces, implementations, defaults)
