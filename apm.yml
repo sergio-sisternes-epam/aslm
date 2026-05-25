@@ -1,5 +1,5 @@
 name: aml
-version: 0.1.0
+version: 0.2.0
 description: "Agent Markup Language — declarative skill invocation for agent prompts"
 license: MIT
 target: [copilot, claude, cursor, codex, opencode]
