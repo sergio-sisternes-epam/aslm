@@ -42,7 +42,7 @@ result = execute(doc, registry)
 | Method | Description |
 |--------|-------------|
 | `AmlRegistry()` | Create empty registry |
-| `register_interface(name, description=None)` | Register an interface |
+| `register_interface(name, extends=None, description=None)` | Register an interface |
 | `register_implementation(name, implements, language=None, framework=None, description=None, priority=0)` | Register an implementation |
 | `register_from_document(doc)` | Register all definitions from a parsed document |
 | `validate()` | Return list of validation errors |

@@ -6,6 +6,9 @@ use crate::ast::{IoDecl, NodeDecl, NodeKind, ParamDecl, ReturnDecl, SkillRef, To
 #[derive(Debug, Clone)]
 pub struct InterfaceEntry {
     pub name: String,
+    /// Parent interface name for interface inheritance (`extends=`).
+    /// This is metadata only — resolution does NOT traverse the hierarchy.
+    pub extends: Option<String>,
     pub description: Option<String>,
     /// Typed parameter declarations (empty for legacy text-only interfaces).
     pub params: Vec<ParamDecl>,
@@ -44,6 +47,14 @@ pub enum RegistryError {
         implementation: String,
         interface: String,
     },
+    ExtendsUnknownInterface {
+        child: String,
+        parent: String,
+    },
+    ExtendsInterfaceCycle {
+        /// The cycle path, e.g. `"A -> B -> C -> A"`.
+        cycle: String,
+    },
 }
 
 impl std::fmt::Display for RegistryError {
@@ -63,6 +74,15 @@ impl std::fmt::Display for RegistryError {
                     f,
                     "implementation '{implementation}' references unknown interface '{interface}'"
                 )
+            }
+            Self::ExtendsUnknownInterface { child, parent } => {
+                write!(
+                    f,
+                    "interface '{child}' extends unknown interface '{parent}'"
+                )
+            }
+            Self::ExtendsInterfaceCycle { cycle } => {
+                write!(f, "interface extends cycle detected: {cycle}")
             }
         }
     }
@@ -90,6 +110,7 @@ impl SkillRegistry {
     pub fn register_interface(
         &mut self,
         name: String,
+        extends: Option<String>,
         description: Option<String>,
         params: Vec<ParamDecl>,
         returns: Vec<ReturnDecl>,
@@ -105,6 +126,7 @@ impl SkillRegistry {
             name.clone(),
             InterfaceEntry {
                 name,
+                extends,
                 description,
                 params,
                 returns,
@@ -156,6 +178,7 @@ impl SkillRegistry {
         match kind {
             NodeKind::InterfaceDefinition {
                 name,
+                extends,
                 description,
                 params,
                 returns,
@@ -163,8 +186,10 @@ impl SkillRegistry {
                 writes,
                 skill_refs,
                 tool_constraints,
+                ..
             } => self.register_interface(
                 name.clone(),
+                extends.clone(),
                 description.clone(),
                 params.clone(),
                 returns.clone(),
@@ -220,9 +245,12 @@ impl SkillRegistry {
             .unwrap_or_default()
     }
 
-    /// Validate that all implementations reference known interfaces.
+    /// Validate that all implementations reference known interfaces, and that
+    /// the interface `extends` hierarchy is acyclic and references known interfaces.
     pub fn validate(&self) -> Vec<RegistryError> {
         let mut errors = Vec::new();
+
+        // Check implementation → interface references.
         for entry in self.implementations.values() {
             if !self.interfaces.contains_key(&entry.implements) {
                 errors.push(RegistryError::ImplementsUnknownInterface {
@@ -231,6 +259,62 @@ impl SkillRegistry {
                 });
             }
         }
+
+        // Check interface → parent references and detect cycles.
+        for entry in self.interfaces.values() {
+            if let Some(ref parent) = entry.extends {
+                if !self.interfaces.contains_key(parent) {
+                    errors.push(RegistryError::ExtendsUnknownInterface {
+                        child: entry.name.clone(),
+                        parent: parent.clone(),
+                    });
+                }
+            }
+        }
+
+        // Cycle detection: walk the extends chain for each interface.
+        // We only report a cycle once (anchored at the first node in alphabetical
+        // order within the cycle to keep output deterministic).
+        let mut reported_cycles: Vec<String> = Vec::new();
+        let mut interface_names: Vec<String> =
+            self.interfaces.keys().cloned().collect();
+        interface_names.sort();
+
+        for start in &interface_names {
+            if reported_cycles.contains(start) {
+                continue;
+            }
+            let mut path: Vec<String> = Vec::new();
+            let mut current = start.clone();
+            loop {
+                if let Some(pos) = path.iter().position(|n| n == &current) {
+                    // Cycle found — extract the cyclic portion.
+                    let cycle_nodes = &path[pos..];
+                    let cycle_str = {
+                        let mut s = cycle_nodes.join(" -> ");
+                        s.push_str(" -> ");
+                        s.push_str(&current);
+                        s
+                    };
+                    // Mark all nodes in the cycle so we don't re-report.
+                    for node in cycle_nodes {
+                        reported_cycles.push(node.clone());
+                    }
+                    errors.push(RegistryError::ExtendsInterfaceCycle { cycle: cycle_str });
+                    break;
+                }
+                path.push(current.clone());
+                match self
+                    .interfaces
+                    .get(&current)
+                    .and_then(|e| e.extends.as_deref())
+                {
+                    Some(parent) => current = parent.to_string(),
+                    None => break,
+                }
+            }
+        }
+
         errors
     }
 }
@@ -244,6 +328,7 @@ mod tests {
         let mut reg = SkillRegistry::new();
         reg.register_interface(
             "testing".into(),
+            None,
             Some("Run tests".into()),
             Vec::new(),
             Vec::new(),
@@ -275,6 +360,7 @@ mod tests {
         reg.register_interface(
             "testing".into(),
             None,
+            None,
             Vec::new(),
             Vec::new(),
             None,
@@ -286,6 +372,7 @@ mod tests {
         let err = reg
             .register_interface(
                 "testing".into(),
+                None,
                 None,
                 Vec::new(),
                 Vec::new(),
@@ -313,5 +400,135 @@ mod tests {
         .unwrap();
         let errors = reg.validate();
         assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn test_extends_unknown_parent_is_error() {
+        let mut reg = SkillRegistry::new();
+        reg.register_interface(
+            "child".into(),
+            Some("nonexistent-parent".into()),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let errors = reg.validate();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, RegistryError::ExtendsUnknownInterface { child, .. } if child == "child")),
+            "expected ExtendsUnknownInterface; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_extends_self_cycle_is_error() {
+        let mut reg = SkillRegistry::new();
+        reg.register_interface(
+            "self-loop".into(),
+            Some("self-loop".into()),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let errors = reg.validate();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, RegistryError::ExtendsInterfaceCycle { .. })),
+            "expected cycle error for self-extension; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_extends_two_node_cycle_is_error() {
+        let mut reg = SkillRegistry::new();
+        reg.register_interface(
+            "a".into(),
+            Some("b".into()),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        reg.register_interface(
+            "b".into(),
+            Some("a".into()),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let errors = reg.validate();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, RegistryError::ExtendsInterfaceCycle { .. })),
+            "expected cycle error for A→B→A; got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_valid_extends_hierarchy_no_errors() {
+        let mut reg = SkillRegistry::new();
+        // root
+        reg.register_interface(
+            "root".into(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        // child extends root
+        reg.register_interface(
+            "child".into(),
+            Some("root".into()),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        // grandchild extends child
+        reg.register_interface(
+            "grandchild".into(),
+            Some("child".into()),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let errors = reg.validate();
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
 }

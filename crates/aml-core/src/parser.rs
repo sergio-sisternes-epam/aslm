@@ -1681,6 +1681,8 @@ fn build_node_kind(attrs: &HashMap<String, String>, offset: usize) -> Result<Nod
                 })?;
                 Ok(NodeKind::InterfaceDefinition {
                     name,
+                    extends: attrs.get("extends").cloned(),
+                    legacy_implements: attrs.get("implements").cloned(),
                     description: attrs.get("description").cloned(),
                     params: Vec::new(),
                     returns: Vec::new(),

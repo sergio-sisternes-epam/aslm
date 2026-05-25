@@ -173,6 +173,7 @@ mod tests {
         reg.register_interface(
             "testing".into(),
             None,
+            None,
             Vec::new(),
             Vec::new(),
             None,

@@ -323,6 +323,7 @@ mod tests {
             .register_interface(
                 "testing".into(),
                 None,
+                None,
                 Vec::new(),
                 Vec::new(),
                 None,
@@ -388,6 +389,7 @@ mod tests {
             .register_interface(
                 "failing".into(),
                 None,
+                None,
                 Vec::new(),
                 Vec::new(),
                 None,
@@ -427,6 +429,7 @@ mod tests {
         registry
             .register_interface(
                 "failing".into(),
+                None,
                 None,
                 Vec::new(),
                 Vec::new(),
@@ -493,6 +496,7 @@ mod tests {
             .register_interface(
                 "failing".into(),
                 None,
+                None,
                 Vec::new(),
                 Vec::new(),
                 None,
@@ -533,6 +537,7 @@ mod tests {
         registry
             .register_interface(
                 "failing".into(),
+                None,
                 None,
                 Vec::new(),
                 Vec::new(),
@@ -577,6 +582,7 @@ mod tests {
         registry
             .register_interface(
                 "failing".into(),
+                None,
                 None,
                 Vec::new(),
                 Vec::new(),

@@ -123,11 +123,17 @@ impl AmlRegistry {
     }
 
     /// Register an interface.
-    #[pyo3(signature = (name, description=None))]
-    fn register_interface(&mut self, name: String, description: Option<String>) -> PyResult<()> {
+    #[pyo3(signature = (name, extends=None, description=None))]
+    fn register_interface(
+        &mut self,
+        name: String,
+        extends: Option<String>,
+        description: Option<String>,
+    ) -> PyResult<()> {
         self.inner
             .register_interface(
                 name,
+                extends,
                 description,
                 Vec::new(),
                 Vec::new(),

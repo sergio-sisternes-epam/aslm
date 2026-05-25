@@ -18,6 +18,7 @@ fn build_registry() -> SkillRegistry {
     let mut reg = SkillRegistry::new();
     reg.register_interface(
         "code-review".into(),
+        None,
         Some("Review code".into()),
         Vec::new(),
         Vec::new(),
@@ -39,6 +40,7 @@ fn build_registry() -> SkillRegistry {
     .unwrap();
     reg.register_interface(
         "testing".into(),
+        None,
         Some("Run tests".into()),
         Vec::new(),
         Vec::new(),
