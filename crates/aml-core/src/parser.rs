@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::ast::{
-    AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, IoDecl, Node,
-    NodeDecl, NodeKind, NodeType, Param, ParamDecl, ReturnDecl, SessionDirective, SkillRef, Span,
-    ToolConstraint, ToolDirective,
+    AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, FieldDecl,
+    IoDecl, Node, NodeDecl, NodeKind, NodeType, Param, ParamDecl, ReturnDecl, SessionDirective,
+    SkillRef, Span, ToolConstraint, ToolDirective,
 };
 
 /// Recognised tag names in AML.
@@ -68,6 +68,8 @@ pub struct ParseError {
     pub message: String,
     pub span: Span,
 }
+
+pub(crate) const BARE_ATTR_SENTINEL: &str = "__aml_bare_attribute__";
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -424,6 +426,26 @@ fn parse_skill_tag(input: &str, offset: usize) -> Result<(Node, usize), ParseErr
             *writes = body.writes;
             *skill_refs = body.skill_refs;
             *tool_constraints = body.tool_constraints;
+        }
+
+        let total_consumed = content_start + content_end + close_tag_end;
+        return Ok((
+            Node::Skill {
+                kind,
+                params: Vec::new(),
+                children: body.children,
+                span: Span::new(offset, offset + total_consumed),
+            },
+            total_consumed,
+        ));
+    }
+
+    // For contract definitions, parse the body for field declarations
+    if matches!(kind, NodeKind::ContractDefinition { .. }) {
+        let body = parse_contract_body(content, offset + content_start)?;
+
+        if let NodeKind::ContractDefinition { ref mut fields, .. } = kind {
+            *fields = body.fields;
         }
 
         let total_consumed = content_start + content_end + close_tag_end;
@@ -987,6 +1009,278 @@ fn parse_tool_list(value: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// Contract declaration tag names (context-sensitive — only inside contract bodies).
+const CONTRACT_DECL_TAGS: &[&str] = &["field"];
+
+/// Detect a contract declaration tag at the start of `s`.
+fn detect_contract_decl_tag(s: &str) -> Option<&'static str> {
+    for &tag in CONTRACT_DECL_TAGS {
+        let prefix = format!("<{tag}");
+        if s.starts_with(&prefix) && is_tag_start_after(&s[prefix.len()..]) {
+            return Some(tag);
+        }
+    }
+    None
+}
+
+/// Detect a close tag for a contract declaration tag.
+fn detect_contract_close_tag(s: &str) -> Option<&'static str> {
+    for &tag in CONTRACT_DECL_TAGS {
+        let close = format!("</{tag}>");
+        if s.starts_with(&close) {
+            return Some(tag);
+        }
+    }
+    None
+}
+
+/// Find the next contract declaration tag or AML tag start position.
+fn find_next_contract_tag(s: &str) -> Option<usize> {
+    let mut i = 0;
+    while i < s.len() {
+        if s[i..].starts_with('<') {
+            if detect_contract_decl_tag(&s[i..]).is_some()
+                || detect_contract_close_tag(&s[i..]).is_some()
+                || detect_open_tag(&s[i..]).is_some()
+                || detect_close_tag(&s[i..]).is_some()
+            {
+                return Some(i);
+            }
+            if s[i..].starts_with("<!--") {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Parsed contract body result.
+struct ParsedContractBody {
+    fields: Vec<FieldDecl>,
+    children: Vec<Node>,
+}
+
+/// Parse the body of a contract definition, extracting field declarations.
+fn parse_contract_body(input: &str, base_offset: usize) -> Result<ParsedContractBody, ParseError> {
+    let mut fields = Vec::new();
+    let mut children = Vec::new();
+    let mut pos = 0;
+
+    while pos < input.len() {
+        if input[pos..].starts_with("<!--") {
+            if let Some(end) = input[pos..].find("-->") {
+                pos += end + 3;
+            } else {
+                children.push(Node::Text(input[pos..].to_string()));
+                break;
+            }
+            continue;
+        }
+
+        if detect_contract_decl_tag(&input[pos..]) == Some("field") {
+            let (decl, consumed) = parse_field_decl(&input[pos..], base_offset + pos)?;
+            fields.push(decl);
+            pos += consumed;
+            continue;
+        }
+
+        if detect_contract_close_tag(&input[pos..]).is_some() {
+            if let Some(end) = input[pos..].find('>') {
+                pos += end + 1;
+            } else {
+                pos += 1;
+            }
+            continue;
+        }
+
+        if let Some(tag) = detect_open_tag(&input[pos..]) {
+            match tag {
+                TagName::Skill => {
+                    let (node, consumed) = parse_skill_tag(&input[pos..], base_offset + pos)?;
+                    children.push(node);
+                    pos += consumed;
+                    continue;
+                }
+                TagName::Tool | TagName::Session | TagName::Agent => {
+                    let (node, consumed) =
+                        parse_directive_tag(tag, &input[pos..], base_offset + pos)?;
+                    children.push(node);
+                    pos += consumed;
+                    continue;
+                }
+                TagName::Param => {
+                    if let Some(end) = input[pos..].find('>') {
+                        children.push(Node::Text(input[pos..pos + end + 1].to_string()));
+                        pos += end + 1;
+                    } else {
+                        children.push(Node::Text(input[pos..].to_string()));
+                        break;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        let text_end = find_next_contract_tag(&input[pos..]).unwrap_or(input.len() - pos);
+        if text_end > 0 {
+            children.push(Node::Text(decode_entities(&input[pos..pos + text_end])));
+            pos += text_end;
+        } else {
+            children.push(Node::Text(input[pos..pos + 1].to_string()));
+            pos += 1;
+        }
+    }
+
+    merge_text_nodes(&mut children);
+    Ok(ParsedContractBody { fields, children })
+}
+
+/// Parse a `<field>` declaration inside a contract definition.
+/// Supports self-closing fields, text descriptions, and nested child fields.
+fn parse_field_decl(input: &str, base_offset: usize) -> Result<(FieldDecl, usize), ParseError> {
+    let tag_end = find_tag_end(input).ok_or_else(|| ParseError {
+        message: "unclosed <field> declaration tag".to_string(),
+        span: Span::new(base_offset, base_offset + input.len().min(50)),
+    })?;
+
+    let is_self_closing = input[..tag_end].ends_with('/');
+    let attrs_str = if is_self_closing {
+        &input[6..tag_end - 1]
+    } else {
+        &input[6..tag_end]
+    };
+
+    let attrs = parse_attributes(attrs_str, base_offset + 6)?;
+    let name = attrs.get("name").cloned().ok_or_else(|| ParseError {
+        message: "<field> declaration missing 'name' attribute".to_string(),
+        span: Span::new(base_offset, base_offset + tag_end + 1),
+    })?;
+
+    let required = attrs
+        .get("required")
+        .map(|s| match s.as_str() {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            other => Err(ParseError {
+                message: format!("invalid required value: '{other}' (expected 'true' or 'false')"),
+                span: Span::new(base_offset, base_offset + tag_end + 1),
+            }),
+        })
+        .transpose()?
+        .unwrap_or(false);
+
+    if is_self_closing {
+        let consumed = tag_end + 1;
+        return Ok((
+            FieldDecl {
+                name,
+                field_type: attrs.get("type").cloned(),
+                required,
+                default: attrs.get("default").cloned(),
+                values: attrs.get("values").cloned(),
+                children: Vec::new(),
+                description: None,
+                span: Span::new(base_offset, base_offset + consumed),
+            },
+            consumed,
+        ));
+    }
+
+    let content_start = tag_end + 1;
+    let (content_end, close_tag_end) = find_matching_named_close(
+        "field",
+        &input[content_start..],
+        base_offset + content_start,
+    )?;
+    let body = &input[content_start..content_start + content_end];
+
+    let mut children = Vec::new();
+    let mut text_parts = Vec::new();
+    let mut pos = 0;
+
+    while pos < body.len() {
+        if body[pos..].starts_with("<!--") {
+            if let Some(end) = body[pos..].find("-->") {
+                pos += end + 3;
+            } else {
+                text_parts.push(body[pos..].to_string());
+                break;
+            }
+            continue;
+        }
+
+        if detect_contract_decl_tag(&body[pos..]) == Some("field") {
+            let (child, consumed) =
+                parse_field_decl(&body[pos..], base_offset + content_start + pos)?;
+            children.push(child);
+            pos += consumed;
+            continue;
+        }
+
+        if detect_contract_close_tag(&body[pos..]).is_some() {
+            if let Some(end) = body[pos..].find('>') {
+                pos += end + 1;
+            } else {
+                pos += 1;
+            }
+            continue;
+        }
+
+        if detect_close_tag(&body[pos..]).is_some() {
+            if let Some(end) = body[pos..].find('>') {
+                text_parts.push(body[pos..pos + end + 1].to_string());
+                pos += end + 1;
+            } else {
+                text_parts.push(body[pos..].to_string());
+                break;
+            }
+            continue;
+        }
+
+        if let Some(_tag) = detect_open_tag(&body[pos..]) {
+            if let Some(end) = body[pos..].find('>') {
+                text_parts.push(body[pos..pos + end + 1].to_string());
+                pos += end + 1;
+            } else {
+                text_parts.push(body[pos..].to_string());
+                break;
+            }
+            continue;
+        }
+
+        let text_end = find_next_contract_tag(&body[pos..]).unwrap_or(body.len() - pos);
+        if text_end > 0 {
+            text_parts.push(body[pos..pos + text_end].to_string());
+            pos += text_end;
+        } else {
+            text_parts.push(body[pos..pos + 1].to_string());
+            pos += 1;
+        }
+    }
+
+    let description = decode_entities(&text_parts.join("")).trim().to_string();
+    let consumed = content_start + content_end + close_tag_end;
+
+    Ok((
+        FieldDecl {
+            name,
+            field_type: attrs.get("type").cloned(),
+            required,
+            default: attrs.get("default").cloned(),
+            values: attrs.get("values").cloned(),
+            children,
+            description: if description.is_empty() {
+                None
+            } else {
+                Some(description)
+            },
+            span: Span::new(base_offset, base_offset + consumed),
+        },
+        consumed,
+    ))
 }
 
 /// Implementation declaration tag names (context-sensitive — only inside implementation bodies).
@@ -1598,6 +1892,46 @@ fn find_matching_close(
     })
 }
 
+fn find_matching_named_close(
+    tag_name: &str,
+    input: &str,
+    offset: usize,
+) -> Result<(usize, usize), ParseError> {
+    let mut depth = 1;
+    let mut pos = 0;
+    let open_prefix = format!("<{tag_name}");
+    let close_str = format!("</{tag_name}>");
+    let close_len = close_str.len();
+
+    while pos < input.len() {
+        if input[pos..].starts_with(&open_prefix)
+            && is_tag_start_after(&input[pos + open_prefix.len()..])
+        {
+            if let Some(tag_end) = find_tag_end(&input[pos..]) {
+                if input[pos..pos + tag_end].ends_with('/') {
+                    pos += tag_end + 1;
+                    continue;
+                }
+            }
+            depth += 1;
+            pos += open_prefix.len();
+        } else if input[pos..].starts_with(&close_str) {
+            depth -= 1;
+            if depth == 0 {
+                return Ok((pos, close_len));
+            }
+            pos += close_len;
+        } else {
+            pos += 1;
+        }
+    }
+
+    Err(ParseError {
+        message: format!("unclosed <{tag_name}> tag — no matching {close_str}"),
+        span: Span::new(offset, offset + input.len().min(50)),
+    })
+}
+
 fn parse_attributes(
     input: &str,
     base_offset: usize,
@@ -1618,7 +1952,12 @@ fn parse_attributes(
 
         // Read attribute name
         let name_start = pos;
-        while pos < bytes.len() && bytes[pos] != b'=' && !bytes[pos].is_ascii_whitespace() {
+        while pos < bytes.len()
+            && bytes[pos] != b'='
+            && bytes[pos] != b'/'
+            && bytes[pos] != b'>'
+            && !bytes[pos].is_ascii_whitespace()
+        {
             pos += 1;
         }
         let name = &trimmed[name_start..pos];
@@ -1626,16 +1965,23 @@ fn parse_attributes(
             break;
         }
 
-        // Skip whitespace and '='
+        // Skip whitespace after name
         while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
             pos += 1;
         }
+
+        // Check for bare attribute (no '=')
         if pos >= bytes.len() || bytes[pos] != b'=' {
-            return Err(ParseError {
-                message: format!("expected '=' after attribute '{name}'"),
-                span: Span::new(base_offset + pos, base_offset + pos + 1),
-            });
+            let value = if name == "required" {
+                "true"
+            } else {
+                BARE_ATTR_SENTINEL
+            };
+            attrs.insert(name.to_string(), value.to_string());
+            continue;
         }
+
+        // Standard attribute with '='
         pos += 1; // skip '='
 
         // Skip whitespace
@@ -1712,9 +2058,22 @@ fn build_node_kind(attrs: &HashMap<String, String>, offset: usize) -> Result<Nod
                     skill_refs: Vec::new(),
                 })
             }
+            "contract" => {
+                let name = attrs.get("name").cloned().ok_or_else(|| ParseError {
+                    message: "contract definition requires 'name' attribute".to_string(),
+                    span: Span::new(offset, offset + 20),
+                })?;
+                Ok(NodeKind::ContractDefinition {
+                    name,
+                    extends: attrs.get("extends").cloned(),
+                    version: attrs.get("version").cloned(),
+                    description: attrs.get("description").cloned(),
+                    fields: Vec::new(),
+                })
+            }
             other => Err(ParseError {
                 message: format!(
-                    "unknown define value: '{other}' (expected 'interface' or 'implementation')"
+                    "unknown define value: '{other}' (expected 'interface', 'implementation', or 'contract')"
                 ),
                 span: Span::new(offset, offset + 20),
             }),

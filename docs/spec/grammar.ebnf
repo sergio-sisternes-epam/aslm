@@ -3,8 +3,8 @@
 # A document is arbitrary text interspersed with skill and directive tags.
 Document       ::= (Text | SkillNode | DirectiveNode)*
 
-# Skill nodes come in three mutually exclusive forms:
-SkillNode      ::= Invocation | InterfaceDef | ImplementationDef
+# Skill nodes come in four mutually exclusive forms:
+SkillNode      ::= Invocation | InterfaceDef | ImplementationDef | ContractDef
 
 # --- INVOCATION ---
 # At least one of: interface, impl, or name (resolution target).
@@ -54,7 +54,7 @@ InterfaceBody  ::= (Text | ParamDecl | ReturnsDecl | ReadsDecl | WritesDecl | Sk
 ParamDecl      ::= '<param' ParamDeclAttrs '>' Text '</param>'
                  | '<param' ParamDeclAttrs '/>'
 ParamDeclAttrs ::= 'name' '=' QuotedString
-                   ('type' '=' QuotedString)?        # string | enum | number | boolean | path | list
+                   ('type' '=' QuotedString)?        # string | enum | number | boolean | path | list | contract:<name>
                    ('required' '=' QuotedString)?    # "true" or "false"
                    ('default' '=' QuotedString)?
                    ('values' '=' QuotedString)?      # required when type="enum"; pipe-separated
@@ -102,6 +102,30 @@ ImplementationDef ::= '<skill' 'define' '=' '"implementation"'
 ImplDefAttrs       ::= (LanguageAttr | FrameworkAttr | DescriptionAttr)*
 
 ImplementationBody ::= (Text | NodeDecl | SkillRefDecl)*
+
+# --- CONTRACT DEFINITION ---
+# define="contract" is required. name is required.
+# NOT executable. Registered into SkillRegistry during definition extraction phase.
+ContractDef    ::= '<skill' 'define' '=' '"contract"'
+                    'name' '=' QuotedString
+                    ContractDefAttrs?
+                  '>'
+                    ContractBody
+                  '</skill>'
+
+ContractDefAttrs ::= (DescriptionAttr | ExtendsAttr | VersionAttr)*
+VersionAttr      ::= 'version' '=' QuotedString
+ContractBody     ::= (Text | FieldDecl)*
+
+# --- FIELD DECLARATIONS (inside contract definitions) ---
+FieldDecl      ::= '<field' FieldDeclAttrs '>' FieldBody '</field>'
+                 | '<field' FieldDeclAttrs '/>'
+FieldDeclAttrs ::= 'name' '=' QuotedString
+                   ('type' '=' QuotedString)?        # string | enum | number | boolean | path | list | object | contract:<name>
+                   ('required' '=' QuotedString | 'required')?
+                   ('default' '=' QuotedString)?
+                   ('values' '=' QuotedString)?
+FieldBody      ::= Text? FieldDecl* Text?
 
 # --- NODE DECLARATIONS (inside implementation definitions) ---
 # Each node describes one step in a DDE flowchart.
@@ -170,6 +194,7 @@ OnFailureAttr  ::= 'on-failure' '=' QuotedString  # "halt", "skip", or "partial"
 #   - name + impl (name is direct lookup; use impl OR name)
 #   - define="interface" without name
 #   - define="implementation" without name or implements
+#   - define="contract" without name
 #   - Invocation without any of: interface, impl, name
 #   - <tool> with both allow and deny
 #   - <tool> without any of: name, allow, deny
@@ -187,8 +212,8 @@ QuotedString   ::= '"' [^"]* '"'                  # double-quoted only
 
 Text           ::= [^<]+                          # any content that is not a tag open
                  | '<' (?! 'skill' | '/skill' | 'param' | '/param'
-                       | 'tool' | '/tool' | 'session' | '/session'
-                       | 'agent' | '/agent')       # literal '<' not part of a tag
+                       | 'field' | '/field' | 'tool' | '/tool'
+                       | 'session' | '/session' | 'agent' | '/agent')
 
 # --- ESCAPING ---
 # Within Text and ParamValue, the following escape sequences are recognised:

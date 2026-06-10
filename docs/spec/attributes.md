@@ -9,15 +9,20 @@ This document is the canonical reference for attribute semantics.
 
 | Attribute | Type | Allowed values | Default | Valid on | Required |
 |---|---|---|---|---|---|
-| `define` | enum | `"interface"`, `"implementation"` | — | InterfaceDef, ImplementationDef | Yes (on definitions) |
+| `define` | enum | `"interface"`, `"implementation"`, `"contract"` | — | InterfaceDef, ImplementationDef, ContractDef | Yes (on definitions) |
 | `name` | string | 1-128 chars, `[a-z0-9-/]` | — | All node types | Yes (on definitions and Lookup invocations) |
 | `interface` | string | 1-128 chars, `[a-z0-9-/]` | — | Invocation | No |
 | `impl` | string | 1-128 chars, `[a-z0-9-/]` | — | Invocation | No |
-| `extends` | string | 1-128 chars, `[a-z0-9-/]` | — | InterfaceDef | No |
+| `extends` | string | 1-128 chars, `[a-z0-9-/]` | — | InterfaceDef, ContractDef | No |
 | `implements` | string | 1-128 chars, `[a-z0-9-/]` | — | ImplementationDef | Yes |
 | `language` | string | free text, lowercase recommended | — | Invocation, ImplementationDef | No |
 | `framework` | string | free text, lowercase recommended | — | Invocation, ImplementationDef | No |
-| `description` | string | free text, <= 1024 chars | — | InterfaceDef, ImplementationDef | No |
+| `description` | string | free text, <= 1024 chars | — | InterfaceDef, ImplementationDef, ContractDef | No |
+| `version` | string | free text, semver-ish recommended | — | ContractDef | No |
+| `type` | string | primitive types or `contract:<name>` | `"string"` by convention | ParamDecl, ReturnsDecl, FieldDecl | No |
+| `required` | boolean / bare flag | `"true"`, `"false"`, or bare `required` | `false` | ParamDecl, FieldDecl | No |
+| `default` | string | free text | — | ParamDecl, FieldDecl | No |
+| `values` | string | pipe-separated values | — | ParamDecl, ReturnsDecl, FieldDecl | No |
 | `retries` | uint | 0-10 | 0 | Invocation | No |
 | `timeout` | duration | e.g. "30s", "5m", "1h" | no timeout | Invocation | No |
 | `policy` | enum | `"bottom-up"`, `"wrapper"`, `"sequential"` | `"bottom-up"` | Invocation | No |
@@ -44,7 +49,7 @@ The following combinations are **invalid** and MUST be rejected during validatio
 | `name` + `impl` (on Invocation) | Use one resolution mode: name OR impl |
 | `allow` + `deny` (on ToolDirective) | Use one constraint mode: whitelist OR blacklist |
 | `extends` + `implements` (on InterfaceDef, different values) | Conflicting parent declarations |
-| `extends` on ImplementationDef or Invocation | `extends` is only valid on interface definitions |
+| `extends` on ImplementationDef or Invocation | `extends` is only valid on interface and contract definitions |
 | `implements` on InterfaceDef | Deprecated — use `extends` instead (warning now, error in a future release) |
 
 ## Co-occurrence Rules
@@ -68,6 +73,7 @@ A `<skill>` tag's node type is determined by its attributes:
 if "define" is present:
     if define == "interface" → InterfaceDef
     if define == "implementation" → ImplementationDef
+    if define == "contract" → ContractDef
     else → ValidationError (unknown define value)
 else:
     → Invocation (must have at least one of: interface, impl, name)
@@ -86,9 +92,9 @@ Directive tags are determined by tag name, not by attributes:
 Directives are **not** skill nodes. They instruct the runtime about execution
 environment — tool constraints, session isolation, or subagent delegation.
 
-## `extends=` — Interface Inheritance
+## `extends=` — Interface and Contract Inheritance
 
-The `extends` attribute expresses **interface inheritance** (specialisation):
+The `extends` attribute expresses **interface or contract inheritance** (specialisation):
 
 ```xml
 <!-- Parent interface — top-level contract -->
@@ -119,7 +125,7 @@ The `extends` attribute expresses **interface inheritance** (specialisation):
 
 | Attribute | Semantics | Valid on |
 |---|---|---|
-| `extends` | Interface ← Interface (specialisation) | `define="interface"` |
+| `extends` | Interface ← Interface or Contract ← Contract (specialisation) | `define="interface"`, `define="contract"` |
 | `implements` | Implementation ← Interface (realisation) | `define="implementation"` |
 
 Using `implements=` on an interface definition is **deprecated** (validation
@@ -164,3 +170,20 @@ graceful degradation. The unknown attributes are:
 - Preserved in the AST (for round-tripping).
 - Reported as warnings during validation.
 - Ignored during resolution and execution.
+
+## Field Declarations
+
+Contracts use nested `<field>` declarations to describe object shapes:
+
+```xml
+<skill define="contract" name="tracker-metadata" version="1.0">
+  <field name="platform" type="enum" values="github|jira" required />
+  <field name="url" type="string">Optional deep link</field>
+</skill>
+```
+
+Rules:
+- `required` may be written as a bare attribute on `<field>` and `<param>`.
+- `type="object"` and `type="list"` may contain nested `<field>` children.
+- Scalar field types (`string`, `number`, `boolean`, `enum`, `path`, `contract:<name>`) must not contain child fields.
+- `type="contract:<name>"` references another registered contract.

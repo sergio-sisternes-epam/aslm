@@ -20,7 +20,7 @@ AML uses XML-like `<skill>` tags embedded in natural text:
 
 ## Node Types
 
-There are three mutually exclusive node types:
+There are four mutually exclusive node types:
 
 ### 1. Invocation (execute a skill)
 
@@ -52,6 +52,20 @@ Required: `define="interface"` and `name`.
 
 Required: `define="implementation"`, `name`, and `implements`.
 
+### 4. Contract Definition (declare a data shape)
+
+```xml
+<skill define="contract" name="specification-contract" version="1.0">
+  <field name="work_item_id" type="string" required>Stable tracker ID</field>
+  <field name="tracker" type="object">
+    <field name="platform" type="enum" values="github|jira|ado" required />
+    <field name="ref" type="string" required />
+  </field>
+</skill>
+```
+
+Use `type="contract:<name>"` on typed `<param>` or `<returns>` declarations to reference a contract. Bare `required` is valid on `<field>` and typed `<param>` declarations; other bare attributes are invalid.
+
 ## Attributes Reference
 
 | Attribute | Valid on | Description |
@@ -59,8 +73,10 @@ Required: `define="implementation"`, `name`, and `implements`.
 | `interface` | Invocation | Abstract capability to resolve |
 | `impl` | Invocation | Force a specific implementation |
 | `name` | All | Identifier for definitions; direct lookup for invocations |
-| `define` | Definition | `"interface"` or `"implementation"` |
+| `define` | Definition | `"interface"`, `"implementation"`, or `"contract"` |
 | `implements` | ImplDef | Which interface this implements |
+| `extends` | InterfaceDef, ContractDef | Parent interface or contract (validation only in v0.3.0) |
+| `version` | ContractDef | Freeform contract version string |
 | `language` | Invocation, ImplDef | Language hint for resolution |
 | `framework` | Invocation, ImplDef | Framework hint for resolution |
 | `retries` | Invocation | Max retry attempts (default: 0) |
@@ -230,6 +246,7 @@ Nested `<tool>` directives compose monotonically (inner can only restrict):
 7. **Definitions don't contain directives** — directive tags inside definition bodies are invalid
 8. **Tool constraints only narrow** — `<tool>` cannot expand access beyond host policy
 9. **Tool composition is monotonic** — nested `<tool>` tags intersect allows and union denies
+10. **Contracts are schema-only** — contract definitions register data shapes and never execute
 
 ## When NOT to use AML
 

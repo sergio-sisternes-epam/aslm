@@ -85,6 +85,17 @@ pub enum NodeKind {
         /// Skill references (e.g. DDE enforcement wrappers).
         skill_refs: Vec<SkillRef>,
     },
+    /// A data-shape contract definition — registered but not executed.
+    ContractDefinition {
+        name: String,
+        /// Parent contract name for contract inheritance.
+        extends: Option<String>,
+        /// Freeform version string (semver-ish, no resolution in v0.3.0).
+        version: Option<String>,
+        description: Option<String>,
+        /// Field declarations.
+        fields: Vec<FieldDecl>,
+    },
 }
 
 /// Execution policy for nested skills.
@@ -255,6 +266,25 @@ pub struct ReturnDecl {
     pub span: Span,
 }
 
+/// A field declaration within a contract definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldDecl {
+    pub name: String,
+    /// Type of the field: `string`, `enum`, `number`, `boolean`, `path`, `list`, `object`, or `contract:<name>`.
+    pub field_type: Option<String>,
+    /// Whether the field is required (bare `required` attribute or `required="true"`).
+    pub required: bool,
+    /// Default value when the field is not provided.
+    pub default: Option<String>,
+    /// Pipe-separated allowed values for `enum` type (e.g. `"a|b|c"`).
+    pub values: Option<String>,
+    /// Nested field declarations for `object` or `list` types.
+    pub children: Vec<FieldDecl>,
+    /// Human-readable description (text content of the tag).
+    pub description: Option<String>,
+    pub span: Span,
+}
+
 /// A file I/O declaration within an interface definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IoDecl {
@@ -325,6 +355,7 @@ pub struct NodeDecl {
 }
 
 /// A node in the AML AST.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
     /// A skill tag (invocation or definition).
@@ -352,7 +383,8 @@ impl Node {
             self,
             Node::Skill {
                 kind: NodeKind::InterfaceDefinition { .. }
-                    | NodeKind::ImplementationDefinition { .. },
+                    | NodeKind::ImplementationDefinition { .. }
+                    | NodeKind::ContractDefinition { .. },
                 ..
             }
         )

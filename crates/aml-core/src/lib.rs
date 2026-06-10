@@ -6,12 +6,12 @@ pub mod resolver;
 pub mod validator;
 
 pub use ast::{
-    AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, IoDecl, Node,
-    NodeDecl, NodeKind, NodeType, Param, ParamDecl, ReturnDecl, SessionDirective, SkillRef, Span,
-    ToolConstraint, ToolDirective,
+    AgentDirective, AgentMode, DirectiveKind, Document, ExecutionPolicy, FailureMode, FieldDecl,
+    IoDecl, Node, NodeDecl, NodeKind, NodeType, Param, ParamDecl, ReturnDecl, SessionDirective,
+    SkillRef, Span, ToolConstraint, ToolDirective,
 };
 pub use executor::{ExecutionContext, ExecutionError, SkillHandler, SkillResult, SkillStatus};
 pub use parser::{parse, ParseError};
-pub use registry::{RegistryError, SkillRegistry};
+pub use registry::{ContractEntry, RegistryError, SkillRegistry};
 pub use resolver::{resolve, ResolutionHints, ResolveError};
 pub use validator::{validate, Severity, ValidationError};

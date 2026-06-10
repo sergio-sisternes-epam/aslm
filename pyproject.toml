@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "aml"
-version = "0.1.0"
+version = "0.3.0"
 description = "AML (Agent Markup Language) — declarative skill invocation for agent prompts"
 readme = "README.md"
 license = { text = "MIT" }
@@ -19,7 +19,6 @@ classifiers = [
 [tool.maturin]
 manifest-path = "crates/aml-python/Cargo.toml"
 module-name = "aml"
-python-source = "python"
 features = ["pyo3/extension-module"]
 
 [tool.ruff]

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::ast::{IoDecl, NodeDecl, NodeKind, ParamDecl, ReturnDecl, SkillRef, ToolConstraint};
+use crate::ast::{
+    FieldDecl, IoDecl, NodeDecl, NodeKind, ParamDecl, ReturnDecl, SkillRef, ToolConstraint,
+};
 
 /// Metadata for a registered interface.
 #[derive(Debug, Clone)]
@@ -38,11 +40,21 @@ pub struct ImplementationEntry {
     pub nodes: Vec<NodeDecl>,
 }
 
+/// Metadata for a registered contract.
+#[derive(Debug, Clone)]
+pub struct ContractEntry {
+    pub name: String,
+    pub extends: Option<String>,
+    pub version: Option<String>,
+    pub fields: Vec<FieldDecl>,
+}
+
 /// Registry error types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegistryError {
     DuplicateInterface(String),
     DuplicateImplementation(String),
+    DuplicateContract(String),
     ImplementsUnknownInterface {
         implementation: String,
         interface: String,
@@ -55,6 +67,17 @@ pub enum RegistryError {
         /// The cycle path, e.g. `"A -> B -> C -> A"`.
         cycle: String,
     },
+    ContractReferenceUnknown {
+        source: String,
+        contract: String,
+    },
+    ContractExtendsUnknown {
+        child: String,
+        parent: String,
+    },
+    ContractExtendsCycle {
+        cycle: String,
+    },
 }
 
 impl std::fmt::Display for RegistryError {
@@ -65,6 +88,9 @@ impl std::fmt::Display for RegistryError {
             }
             Self::DuplicateImplementation(name) => {
                 write!(f, "duplicate implementation definition: '{name}'")
+            }
+            Self::DuplicateContract(name) => {
+                write!(f, "duplicate contract definition: '{name}'")
             }
             Self::ImplementsUnknownInterface {
                 implementation,
@@ -84,6 +110,15 @@ impl std::fmt::Display for RegistryError {
             Self::ExtendsInterfaceCycle { cycle } => {
                 write!(f, "interface extends cycle detected: {cycle}")
             }
+            Self::ContractReferenceUnknown { source, contract } => {
+                write!(f, "'{source}' references unknown contract '{contract}'")
+            }
+            Self::ContractExtendsUnknown { child, parent } => {
+                write!(f, "contract '{child}' extends unknown contract '{parent}'")
+            }
+            Self::ContractExtendsCycle { cycle } => {
+                write!(f, "contract extends cycle detected: {cycle}")
+            }
         }
     }
 }
@@ -95,6 +130,7 @@ impl std::error::Error for RegistryError {}
 pub struct SkillRegistry {
     interfaces: HashMap<String, InterfaceEntry>,
     implementations: HashMap<String, ImplementationEntry>,
+    contracts: HashMap<String, ContractEntry>,
     /// Index: interface name → list of implementation names.
     impl_by_interface: HashMap<String, Vec<String>>,
 }
@@ -173,6 +209,29 @@ impl SkillRegistry {
         Ok(())
     }
 
+    /// Register a contract definition.
+    pub fn register_contract(
+        &mut self,
+        name: String,
+        extends: Option<String>,
+        version: Option<String>,
+        fields: Vec<FieldDecl>,
+    ) -> Result<(), RegistryError> {
+        if self.contracts.contains_key(&name) {
+            return Err(RegistryError::DuplicateContract(name));
+        }
+        self.contracts.insert(
+            name.clone(),
+            ContractEntry {
+                name,
+                extends,
+                version,
+                fields,
+            },
+        );
+        Ok(())
+    }
+
     /// Register definitions extracted from AST nodes.
     pub fn register_from_node_kind(&mut self, kind: &NodeKind) -> Result<(), RegistryError> {
         match kind {
@@ -215,6 +274,18 @@ impl SkillRegistry {
                 0,
                 nodes.clone(),
             ),
+            NodeKind::ContractDefinition {
+                name,
+                extends,
+                version,
+                fields,
+                ..
+            } => self.register_contract(
+                name.clone(),
+                extends.clone(),
+                version.clone(),
+                fields.clone(),
+            ),
             NodeKind::Invocation { .. } => Ok(()), // Invocations are not registered
         }
     }
@@ -231,6 +302,18 @@ impl SkillRegistry {
         self.interfaces.get(name)
     }
 
+    /// Look up a contract by name.
+    #[must_use]
+    pub fn get_contract(&self, name: &str) -> Option<&ContractEntry> {
+        self.contracts.get(name)
+    }
+
+    /// Get all contracts.
+    #[must_use]
+    pub fn contracts(&self) -> &HashMap<String, ContractEntry> {
+        &self.contracts
+    }
+
     /// Get all implementations for a given interface.
     #[must_use]
     pub fn implementations_for(&self, interface: &str) -> Vec<&ImplementationEntry> {
@@ -245,12 +328,10 @@ impl SkillRegistry {
             .unwrap_or_default()
     }
 
-    /// Validate that all implementations reference known interfaces, and that
-    /// the interface `extends` hierarchy is acyclic and references known interfaces.
+    /// Validate cross-definition references and inheritance graphs.
     pub fn validate(&self) -> Vec<RegistryError> {
         let mut errors = Vec::new();
 
-        // Check implementation → interface references.
         for entry in self.implementations.values() {
             if !self.interfaces.contains_key(&entry.implements) {
                 errors.push(RegistryError::ImplementsUnknownInterface {
@@ -260,7 +341,6 @@ impl SkillRegistry {
             }
         }
 
-        // Check interface → parent references and detect cycles.
         for entry in self.interfaces.values() {
             if let Some(ref parent) = entry.extends {
                 if !self.interfaces.contains_key(parent) {
@@ -270,52 +350,149 @@ impl SkillRegistry {
                     });
                 }
             }
+
+            collect_contract_refs_from_types(
+                &entry.name,
+                entry
+                    .params
+                    .iter()
+                    .filter_map(|param| param.param_type.as_deref()),
+                &self.contracts,
+                &mut errors,
+            );
+            collect_contract_refs_from_types(
+                &entry.name,
+                entry
+                    .returns
+                    .iter()
+                    .filter_map(|ret| ret.return_type.as_deref()),
+                &self.contracts,
+                &mut errors,
+            );
         }
 
-        // Cycle detection: walk the extends chain for each interface.
-        // We only report a cycle once (anchored at the first node in alphabetical
-        // order within the cycle to keep output deterministic).
-        let mut reported_cycles: Vec<String> = Vec::new();
-        let mut interface_names: Vec<String> =
-            self.interfaces.keys().cloned().collect();
-        interface_names.sort();
+        push_cycles(
+            self.interfaces.iter().filter_map(|(name, entry)| {
+                entry
+                    .extends
+                    .as_ref()
+                    .map(|parent| (name.clone(), parent.clone()))
+            }),
+            |cycle| RegistryError::ExtendsInterfaceCycle { cycle },
+            &mut errors,
+        );
 
-        for start in &interface_names {
-            if reported_cycles.contains(start) {
-                continue;
-            }
-            let mut path: Vec<String> = Vec::new();
-            let mut current = start.clone();
-            loop {
-                if let Some(pos) = path.iter().position(|n| n == &current) {
-                    // Cycle found — extract the cyclic portion.
-                    let cycle_nodes = &path[pos..];
-                    let cycle_str = {
-                        let mut s = cycle_nodes.join(" -> ");
-                        s.push_str(" -> ");
-                        s.push_str(&current);
-                        s
-                    };
-                    // Mark all nodes in the cycle so we don't re-report.
-                    for node in cycle_nodes {
-                        reported_cycles.push(node.clone());
-                    }
-                    errors.push(RegistryError::ExtendsInterfaceCycle { cycle: cycle_str });
-                    break;
-                }
-                path.push(current.clone());
-                match self
-                    .interfaces
-                    .get(&current)
-                    .and_then(|e| e.extends.as_deref())
-                {
-                    Some(parent) => current = parent.to_string(),
-                    None => break,
+        for entry in self.contracts.values() {
+            if let Some(ref parent) = entry.extends {
+                if !self.contracts.contains_key(parent) {
+                    errors.push(RegistryError::ContractExtendsUnknown {
+                        child: entry.name.clone(),
+                        parent: parent.clone(),
+                    });
                 }
             }
+
+            collect_contract_refs_from_fields(
+                &entry.name,
+                &entry.fields,
+                &self.contracts,
+                &mut errors,
+            );
         }
+
+        push_cycles(
+            self.contracts.iter().filter_map(|(name, entry)| {
+                entry
+                    .extends
+                    .as_ref()
+                    .map(|parent| (name.clone(), parent.clone()))
+            }),
+            |cycle| RegistryError::ContractExtendsCycle { cycle },
+            &mut errors,
+        );
 
         errors
+    }
+}
+
+fn collect_contract_refs_from_types<'a>(
+    source: &str,
+    types: impl Iterator<Item = &'a str>,
+    contracts: &HashMap<String, ContractEntry>,
+    errors: &mut Vec<RegistryError>,
+) {
+    for ty in types {
+        if let Some(contract) = ty.strip_prefix("contract:") {
+            if !contract.is_empty() && !contracts.contains_key(contract) {
+                errors.push(RegistryError::ContractReferenceUnknown {
+                    source: source.to_string(),
+                    contract: contract.to_string(),
+                });
+            }
+        }
+    }
+}
+
+fn collect_contract_refs_from_fields(
+    source: &str,
+    fields: &[FieldDecl],
+    contracts: &HashMap<String, ContractEntry>,
+    errors: &mut Vec<RegistryError>,
+) {
+    for field in fields {
+        if let Some(contract) = field
+            .field_type
+            .as_deref()
+            .and_then(|ty| ty.strip_prefix("contract:"))
+        {
+            if !contract.is_empty() && !contracts.contains_key(contract) {
+                errors.push(RegistryError::ContractReferenceUnknown {
+                    source: source.to_string(),
+                    contract: contract.to_string(),
+                });
+            }
+        }
+
+        collect_contract_refs_from_fields(source, &field.children, contracts, errors);
+    }
+}
+
+fn push_cycles(
+    edges: impl Iterator<Item = (String, String)>,
+    build_error: impl Fn(String) -> RegistryError,
+    errors: &mut Vec<RegistryError>,
+) {
+    let extends_map: HashMap<String, String> = edges.collect();
+    let mut reported_cycles: Vec<String> = Vec::new();
+    let mut names: Vec<String> = extends_map.keys().cloned().collect();
+    names.sort();
+
+    for start in &names {
+        if reported_cycles.contains(start) {
+            continue;
+        }
+
+        let mut path: Vec<String> = Vec::new();
+        let mut current = start.clone();
+        loop {
+            if let Some(pos) = path.iter().position(|node| node == &current) {
+                let cycle_nodes = &path[pos..];
+                let mut cycle = cycle_nodes.join(" -> ");
+                cycle.push_str(" -> ");
+                cycle.push_str(&current);
+                for node in cycle_nodes {
+                    reported_cycles.push(node.clone());
+                }
+                errors.push(build_error(cycle));
+                break;
+            }
+
+            path.push(current.clone());
+            match extends_map.get(&current) {
+                Some(parent) => current = parent.clone(),
+                None => break,
+            }
+        }
     }
 }
 
