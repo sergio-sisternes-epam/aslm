@@ -4,8 +4,9 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
 
-use aml_core::ast::{DirectiveKind, Node, NodeKind};
+use aml_core::ast::{DirectiveKind, FieldDecl, Node, NodeKind};
 use aml_core::executor::ExecutionContext;
 use aml_core::registry::SkillRegistry as RustRegistry;
 
@@ -14,6 +15,45 @@ use aml_core::registry::SkillRegistry as RustRegistry;
 #[derive(Clone)]
 struct Document {
     inner: aml_core::Document,
+}
+
+fn field_to_object(py: Python<'_>, field: &FieldDecl) -> PyResult<PyObject> {
+    let dict = PyDict::new_bound(py);
+    dict.set_item("name", &field.name)?;
+    dict.set_item("type", field.field_type.as_deref())?;
+    dict.set_item("required", field.required)?;
+    dict.set_item("default", field.default.as_deref())?;
+    dict.set_item("values", field.values.as_deref())?;
+    dict.set_item("description", field.description.as_deref())?;
+
+    let children = PyList::empty_bound(py);
+    for child in &field.children {
+        children.append(field_to_object(py, child)?)?;
+    }
+    dict.set_item("children", children)?;
+
+    Ok(dict.into_any().unbind().into())
+}
+
+fn contract_to_object(
+    py: Python<'_>,
+    extends: &Option<String>,
+    version: &Option<String>,
+    description: &Option<String>,
+    fields: &[FieldDecl],
+) -> PyResult<PyObject> {
+    let dict = PyDict::new_bound(py);
+    dict.set_item("extends", extends.as_deref())?;
+    dict.set_item("version", version.as_deref())?;
+    dict.set_item("description", description.as_deref())?;
+
+    let field_list = PyList::empty_bound(py);
+    for field in fields {
+        field_list.append(field_to_object(py, field)?)?;
+    }
+    dict.set_item("fields", field_list)?;
+
+    Ok(dict.into_any().unbind().into())
 }
 
 #[pymethods]
@@ -42,9 +82,67 @@ impl Document {
                     kind: NodeKind::ImplementationDefinition { name, .. },
                     ..
                 } => Some(format!("impl:{name}")),
+                Node::Skill {
+                    kind: NodeKind::ContractDefinition { name, .. },
+                    ..
+                } => Some(format!("contract:{name}")),
                 _ => None,
             })
             .collect()
+    }
+
+    /// Get contract definitions keyed by name.
+    fn contracts(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let contracts = PyDict::new_bound(py);
+        for node in self.inner.definitions() {
+            if let Node::Skill {
+                kind:
+                    NodeKind::ContractDefinition {
+                        name,
+                        extends,
+                        version,
+                        description,
+                        fields,
+                    },
+                ..
+            } = node
+            {
+                contracts.set_item(
+                    name,
+                    contract_to_object(py, extends, version, description, fields)?,
+                )?;
+            }
+        }
+        Ok(contracts.into_any().unbind().into())
+    }
+
+    /// Get one contract definition by name.
+    fn get_contract(&self, py: Python<'_>, name: &str) -> PyResult<Option<PyObject>> {
+        for node in self.inner.definitions() {
+            if let Node::Skill {
+                kind:
+                    NodeKind::ContractDefinition {
+                        name: contract_name,
+                        extends,
+                        version,
+                        description,
+                        fields,
+                    },
+                ..
+            } = node
+            {
+                if contract_name == name {
+                    return Ok(Some(contract_to_object(
+                        py,
+                        extends,
+                        version,
+                        description,
+                        fields,
+                    )?));
+                }
+            }
+        }
+        Ok(None)
     }
 
     /// Get all invocation targets.

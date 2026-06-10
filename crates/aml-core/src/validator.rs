@@ -1,7 +1,8 @@
 use crate::ast::{
-    DirectiveKind, IoDecl, Node, NodeDecl, NodeKind, NodeType, ParamDecl, ReturnDecl, SkillRef,
-    Span, ToolConstraint, ToolDirective,
+    DirectiveKind, FieldDecl, IoDecl, Node, NodeDecl, NodeKind, NodeType, ParamDecl, ReturnDecl,
+    SkillRef, Span, ToolConstraint, ToolDirective,
 };
+use crate::parser::BARE_ATTR_SENTINEL;
 
 /// Validation error with source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,7 +233,7 @@ fn validate_node(node: &Node, constraints: &ToolConstraints, errors: &mut Vec<Va
             span,
             ..
         } => {
-            validate_kind(kind, *span, errors);
+            validate_kind(kind, children, *span, errors);
 
             // Definitions must not contain nested skill invocations or directives
             if matches!(
@@ -263,14 +264,21 @@ fn validate_node(node: &Node, constraints: &ToolConstraints, errors: &mut Vec<Va
                 }
             }
 
-            for child in children {
-                validate_node(child, constraints, errors);
+            if !matches!(kind, NodeKind::ContractDefinition { .. }) {
+                for child in children {
+                    validate_node(child, constraints, errors);
+                }
             }
         }
     }
 }
 
-fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>) {
+fn validate_kind(
+    kind: &NodeKind,
+    children: &[Node],
+    span: Span,
+    errors: &mut Vec<ValidationError>,
+) {
     match kind {
         NodeKind::Invocation {
             interface,
@@ -306,7 +314,6 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                     severity: Severity::Error,
                 });
             }
-            // Validate `extends` when present.
             if let Some(ext) = extends {
                 if ext.is_empty() {
                     errors.push(ValidationError {
@@ -316,26 +323,21 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
                     });
                 }
             }
-            // Emit deprecation warning when `implements=` was used on an interface node.
             if let Some(leg) = legacy_implements {
                 match extends {
                     Some(ext) if ext != leg => {
-                        // Both present with different values — semantic conflict.
                         errors.push(ValidationError {
                             message: format!(
-                                "interface definition has both extends=\"{ext}\" and \
-                                 implements=\"{leg}\"; use only extends= on interface nodes"
+                                "interface definition has both extends=\"{ext}\" and implements=\"{leg}\"; use only extends= on interface nodes"
                             ),
                             span: Some(span),
                             severity: Severity::Error,
                         });
                     }
                     _ => {
-                        // Either only implements= or they agree — emit deprecation warning.
                         errors.push(ValidationError {
                             message: format!(
-                                "implements=\"{leg}\" on an interface definition is deprecated; \
-                                 use extends=\"{leg}\" instead"
+                                "implements=\"{leg}\" on an interface definition is deprecated; use extends=\"{leg}\" instead"
                             ),
                             span: Some(span),
                             severity: Severity::Warning,
@@ -372,11 +374,188 @@ fn validate_kind(kind: &NodeKind, span: Span, errors: &mut Vec<ValidationError>)
             validate_node_declarations(nodes, span, errors);
             validate_skill_refs(skill_refs, span, errors);
         }
+        NodeKind::ContractDefinition {
+            name,
+            extends,
+            fields,
+            ..
+        } => validate_contract_definition(name, extends, fields, children, span, errors),
     }
 }
 
-/// Valid parameter types for typed declarations.
-const VALID_PARAM_TYPES: &[&str] = &["string", "enum", "number", "boolean", "path", "list"];
+/// Valid scalar types for typed declarations.
+const BASIC_DECL_TYPES: &[&str] = &["string", "enum", "number", "boolean", "path", "list"];
+const CONTRACT_OBJECT_TYPES: &[&str] = &["object", "list"];
+
+fn is_contract_reference(value: &str) -> bool {
+    value
+        .strip_prefix("contract:")
+        .is_some_and(|name| !name.is_empty())
+}
+
+fn is_valid_decl_type(value: &str) -> bool {
+    BASIC_DECL_TYPES.contains(&value) || is_contract_reference(value)
+}
+
+fn is_valid_field_type(value: &str) -> bool {
+    is_valid_decl_type(value) || CONTRACT_OBJECT_TYPES.contains(&value)
+}
+
+fn is_scalar_field_type(value: &str) -> bool {
+    matches!(value, "string" | "enum" | "number" | "boolean" | "path")
+        || is_contract_reference(value)
+}
+
+fn bare_attribute_name<'a>(attrs: &'a [(&'a str, Option<&'a str>)]) -> Option<&'a str> {
+    attrs
+        .iter()
+        .find_map(|(name, value)| (*value == Some(BARE_ATTR_SENTINEL)).then_some(*name))
+}
+
+fn push_invalid_bare_attribute(
+    subject: &str,
+    attr: &str,
+    span: Span,
+    errors: &mut Vec<ValidationError>,
+) {
+    errors.push(ValidationError {
+        message: format!(
+            "{subject} uses bare attribute syntax for '{attr}' (only 'required' may be bare)"
+        ),
+        span: Some(span),
+        severity: Severity::Error,
+    });
+}
+
+fn validate_contract_definition(
+    name: &str,
+    extends: &Option<String>,
+    fields: &[FieldDecl],
+    children: &[Node],
+    span: Span,
+    errors: &mut Vec<ValidationError>,
+) {
+    if name.is_empty() {
+        errors.push(ValidationError {
+            message: "contract definition must have a non-empty name".to_string(),
+            span: Some(span),
+            severity: Severity::Error,
+        });
+    }
+
+    if let Some(parent) = extends {
+        if parent.is_empty() {
+            errors.push(ValidationError {
+                message: "extends attribute must be a non-empty contract name".to_string(),
+                span: Some(span),
+                severity: Severity::Error,
+            });
+        }
+    }
+
+    for child in children {
+        if matches!(
+            child,
+            Node::Skill {
+                kind: NodeKind::Invocation { .. },
+                ..
+            }
+        ) {
+            errors.push(ValidationError {
+                message: "contract definitions must not contain invocations".to_string(),
+                span: child.span(),
+                severity: Severity::Error,
+            });
+        }
+        if matches!(child, Node::Directive { .. }) {
+            errors.push(ValidationError {
+                message: "directive tags are not allowed inside contract definitions".to_string(),
+                span: child.span(),
+                severity: Severity::Error,
+            });
+        }
+    }
+
+    validate_field_declarations(fields, errors);
+}
+
+fn validate_field_declarations(fields: &[FieldDecl], errors: &mut Vec<ValidationError>) {
+    let mut seen_names = Vec::new();
+
+    for field in fields {
+        if field.name.is_empty() {
+            errors.push(ValidationError {
+                message: "field declaration must have a non-empty name".to_string(),
+                span: Some(field.span),
+                severity: Severity::Error,
+            });
+        }
+
+        if seen_names.contains(&field.name) {
+            errors.push(ValidationError {
+                message: format!(
+                    "duplicate field name '{}' in contract definition",
+                    field.name
+                ),
+                span: Some(field.span),
+                severity: Severity::Error,
+            });
+        } else {
+            seen_names.push(field.name.clone());
+        }
+
+        if let Some(attr) = bare_attribute_name(&[
+            ("type", field.field_type.as_deref()),
+            ("default", field.default.as_deref()),
+            ("values", field.values.as_deref()),
+        ]) {
+            push_invalid_bare_attribute(
+                &format!("field '{}'", field.name),
+                attr,
+                field.span,
+                errors,
+            );
+        }
+
+        if let Some(field_type) = field.field_type.as_deref() {
+            if field_type != BARE_ATTR_SENTINEL && !is_valid_field_type(field_type) {
+                errors.push(ValidationError {
+                    message: format!(
+                        "invalid field type '{}' (expected one of: string, enum, number, boolean, path, list, object, contract:<name>)",
+                        field_type
+                    ),
+                    span: Some(field.span),
+                    severity: Severity::Error,
+                });
+            }
+
+            if is_scalar_field_type(field_type) && !field.children.is_empty() {
+                errors.push(ValidationError {
+                    message: format!(
+                        "field '{}' has children but type '{}' is scalar",
+                        field.name, field_type
+                    ),
+                    span: Some(field.span),
+                    severity: Severity::Error,
+                });
+            }
+        }
+
+        let is_enum = field.field_type.as_deref() == Some("enum");
+        if is_enum && field.values.is_none() {
+            errors.push(ValidationError {
+                message: format!(
+                    "field '{}' has type 'enum' but no 'values' attribute",
+                    field.name
+                ),
+                span: Some(field.span),
+                severity: Severity::Error,
+            });
+        }
+
+        validate_field_declarations(&field.children, errors);
+    }
+}
 
 fn validate_interface_declarations(
     params: &[ParamDecl],
@@ -409,14 +588,21 @@ fn validate_interface_declarations(
             });
         }
 
+        if let Some(attr) = bare_attribute_name(&[
+            ("type", p.param_type.as_deref()),
+            ("default", p.default.as_deref()),
+            ("values", p.values.as_deref()),
+        ]) {
+            push_invalid_bare_attribute(&format!("param '{}'", p.name), attr, p.span, errors);
+        }
+
         // Valid type
         if let Some(ref t) = p.param_type {
-            if !VALID_PARAM_TYPES.contains(&t.as_str()) {
+            if t != BARE_ATTR_SENTINEL && !is_valid_decl_type(t) {
                 errors.push(ValidationError {
                     message: format!(
-                        "invalid param type '{}' (expected one of: {})",
-                        t,
-                        VALID_PARAM_TYPES.join(", ")
+                        "invalid param type '{}' (expected one of: string, enum, number, boolean, path, list, contract:<name>)",
+                        t
                     ),
                     span: Some(p.span),
                     severity: Severity::Error,
@@ -439,7 +625,7 @@ fn validate_interface_declarations(
         }
 
         // Non-enum must not have values
-        if !is_enum && p.values.is_some() {
+        if !is_enum && p.values.is_some() && p.values.as_deref() != Some(BARE_ATTR_SENTINEL) {
             errors.push(ValidationError {
                 message: format!(
                     "param '{}' has 'values' attribute but type is not 'enum'",
@@ -452,18 +638,23 @@ fn validate_interface_declarations(
 
         // Validate enum values are non-empty
         if let Some(ref values) = p.values {
-            let entries: Vec<&str> = values.split('|').map(str::trim).collect();
-            if entries.iter().any(|v| v.is_empty()) {
-                errors.push(ValidationError {
-                    message: format!("param '{}' has empty entries in 'values'", p.name),
-                    span: Some(p.span),
-                    severity: Severity::Warning,
-                });
+            if values != BARE_ATTR_SENTINEL {
+                let entries: Vec<&str> = values.split('|').map(str::trim).collect();
+                if entries.iter().any(|v| v.is_empty()) {
+                    errors.push(ValidationError {
+                        message: format!("param '{}' has empty entries in 'values'", p.name),
+                        span: Some(p.span),
+                        severity: Severity::Warning,
+                    });
+                }
             }
         }
 
         // required + default is a warning
-        if p.required == Some(true) && p.default.is_some() {
+        if p.required == Some(true)
+            && p.default.is_some()
+            && p.default.as_deref() != Some(BARE_ATTR_SENTINEL)
+        {
             errors.push(ValidationError {
                 message: format!("param '{}' is required but has a default value", p.name),
                 span: Some(p.span),
@@ -473,23 +664,25 @@ fn validate_interface_declarations(
 
         // Default must be a valid enum value
         if let (Some(ref default), Some(ref values)) = (&p.default, &p.values) {
-            let entries: Vec<&str> = values.split('|').map(str::trim).collect();
-            if !entries.contains(&default.as_str()) {
-                errors.push(ValidationError {
-                    message: format!(
-                        "param '{}' default '{}' is not one of the allowed values: {}",
-                        p.name, default, values
-                    ),
-                    span: Some(p.span),
-                    severity: Severity::Error,
-                });
+            if default != BARE_ATTR_SENTINEL && values != BARE_ATTR_SENTINEL {
+                let entries: Vec<&str> = values.split('|').map(str::trim).collect();
+                if !entries.contains(&default.as_str()) {
+                    errors.push(ValidationError {
+                        message: format!(
+                            "param '{}' default '{}' is not one of the allowed values: {}",
+                            p.name, default, values
+                        ),
+                        span: Some(p.span),
+                        severity: Severity::Error,
+                    });
+                }
             }
         }
 
         // Default type compatibility for boolean
         if p.param_type.as_deref() == Some("boolean") {
             if let Some(ref default) = p.default {
-                if default != "true" && default != "false" {
+                if default != BARE_ATTR_SENTINEL && default != "true" && default != "false" {
                     errors.push(ValidationError {
                         message: format!(
                             "param '{}' has type 'boolean' but default '{}' is not 'true' or 'false'",
@@ -505,7 +698,7 @@ fn validate_interface_declarations(
         // Default type compatibility for number
         if p.param_type.as_deref() == Some("number") {
             if let Some(ref default) = p.default {
-                if default.parse::<f64>().is_err() {
+                if default != BARE_ATTR_SENTINEL && default.parse::<f64>().is_err() {
                     errors.push(ValidationError {
                         message: format!(
                             "param '{}' has type 'number' but default '{}' is not a valid number",
@@ -543,13 +736,19 @@ fn validate_interface_declarations(
             });
         }
 
+        if let Some(attr) = bare_attribute_name(&[
+            ("type", r.return_type.as_deref()),
+            ("values", r.values.as_deref()),
+        ]) {
+            push_invalid_bare_attribute(&format!("returns '{}'", r.name), attr, r.span, errors);
+        }
+
         if let Some(ref t) = r.return_type {
-            if !VALID_PARAM_TYPES.contains(&t.as_str()) {
+            if t != BARE_ATTR_SENTINEL && !is_valid_decl_type(t) {
                 errors.push(ValidationError {
                     message: format!(
-                        "invalid returns type '{}' (expected one of: {})",
-                        t,
-                        VALID_PARAM_TYPES.join(", ")
+                        "invalid returns type '{}' (expected one of: string, enum, number, boolean, path, list, contract:<name>)",
+                        t
                     ),
                     span: Some(r.span),
                     severity: Severity::Error,
@@ -570,7 +769,7 @@ fn validate_interface_declarations(
             });
         }
 
-        if !is_enum && r.values.is_some() {
+        if !is_enum && r.values.is_some() && r.values.as_deref() != Some(BARE_ATTR_SENTINEL) {
             errors.push(ValidationError {
                 message: format!(
                     "returns '{}' has 'values' attribute but type is not 'enum'",
@@ -1805,20 +2004,18 @@ mod tests {
         let doc = parse(r#"<skill define="interface" name="child" extends=""></skill>"#).unwrap();
         let errors = validate(&doc.nodes);
         assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("extends attribute must be a non-empty")
-                    && e.severity == Severity::Error),
+            errors.iter().any(
+                |e| e.message.contains("extends attribute must be a non-empty")
+                    && e.severity == Severity::Error
+            ),
             "expected error for empty extends; got: {errors:?}"
         );
     }
 
     #[test]
     fn test_legacy_implements_on_interface_emits_warning() {
-        let doc = parse(
-            r#"<skill define="interface" name="child" implements="parent"></skill>"#,
-        )
-        .unwrap();
+        let doc = parse(r#"<skill define="interface" name="child" implements="parent"></skill>"#)
+            .unwrap();
         let errors = validate(&doc.nodes);
         assert!(
             errors
@@ -1852,9 +2049,7 @@ mod tests {
         let errors = validate(&doc.nodes);
         // Should warn (deprecated) but not error
         assert!(
-            errors
-                .iter()
-                .any(|e| e.severity == Severity::Warning),
+            errors.iter().any(|e| e.severity == Severity::Warning),
             "expected deprecation warning; got: {errors:?}"
         );
         assert!(

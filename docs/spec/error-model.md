@@ -30,7 +30,12 @@ invalid AML.
 | `ConflictingAttributes` | Mutually exclusive attributes present | Node with conflicts |
 | `MissingRequiredAttribute` | Required attribute for node type is absent | Node |
 | `InvalidAttributeValue` | Value doesn't match expected type/range | Attribute value |
-| `UnknownDefineValue` | `define` is neither "interface" nor "implementation" | `define` attribute |
+| `DuplicateFieldNames` | Two contract fields share the same name at one nesting level | Duplicate field |
+| `EnumWithoutValues` | Contract field has `type="enum"` without `values=` | Field |
+| `InvalidFieldType` | Contract field type is unknown | Field |
+| `ChildrenOnScalarField` | Scalar contract field contains child `<field>` tags | Field |
+| `InvalidBareAttribute` | Bare attribute other than `required` on `<field>` or typed `<param>` | Attribute |
+| `UnknownDefineValue` | `define` is neither "interface", "implementation", nor "contract" | `define` attribute |
 
 Validation errors are **unrecoverable** — the document cannot proceed.
 
@@ -42,6 +47,10 @@ Raised during Phase 3 (Register Definitions).
 |---|---|---|
 | `DuplicateInterface` | Error | Same interface name registered twice in same package |
 | `DuplicateImplementation` | Error | Same implementation name registered twice in same package |
+| `DuplicateContract` | Error | Same contract name registered twice in same package |
+| `ContractReferenceUnknown` | Error | `contract:<name>` reference points to an unknown contract |
+| `ContractExtendsUnknown` | Error | Contract `extends=` points to an unknown contract |
+| `ContractExtendsCycle` | Error | Contract inheritance graph contains a cycle |
 | `OrphanImplementation` | Warning | Implementation's `implements` references unknown interface |
 
 `DuplicateInterface` and `DuplicateImplementation` are **unrecoverable**.
@@ -104,7 +113,8 @@ Raised during Phase 2 (Validate) for directive-specific rules.
 | `AllowDenyConflict` | `<tool>` has both `allow` and `deny` attributes |
 | `MissingDirectiveAttribute` | `<agent>` missing required `name` attribute |
 | `InvalidDirectiveValue` | `isolated` is not "true"/"false", `mode` is not "sync"/"background" |
-| `DirectiveInDefinition` | Directive tag found inside a definition body |
+| `DirectiveInDefinition` | Directive tag found inside an interface or implementation body |
+| `DirectiveInContract` | Directive tag found inside a contract body |
 
 ## Error Structure
 

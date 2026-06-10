@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-10
+
+### Added
+
+- `define="contract"` on `<skill>` nodes for reusable, versioned data-shape contracts with nested `<field>` declarations.
+- Contract-aware registry validation for unknown `contract:` references, unknown `extends=` parents, and contract inheritance cycles.
+- Python document accessors for contract definitions via `definitions()`, `contracts()`, and `get_contract()`.
+- Conformance fixtures covering positive contract authoring and eight negative contract error cases.
+
+### Changed
+
+- Interface and return type validation now accepts `type="contract:<name>"` references.
+- Bare `required` is accepted on `<field>` and `<param>` declarations; other bare attributes are rejected during validation.
+- Definitions executor passthrough now treats contract definitions as non-executable, returning no output.
+
 ## [0.2.0] — 2026-05-25
 
 ### Added

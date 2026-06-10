@@ -133,7 +133,8 @@ impl ExecutionContext {
                 match kind {
                     // Definition nodes produce no output
                     NodeKind::InterfaceDefinition { .. }
-                    | NodeKind::ImplementationDefinition { .. } => Ok(String::new()),
+                    | NodeKind::ImplementationDefinition { .. }
+                    | NodeKind::ContractDefinition { .. } => Ok(String::new()),
 
                     NodeKind::Invocation {
                         interface,

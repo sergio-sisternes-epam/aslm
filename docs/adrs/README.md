@@ -17,3 +17,4 @@ This directory contains the Architecture Decision Records (ADRs) for the AML pro
 | [ADR-009](adr-009-usage-guide-skill.md) | Teach AML via usage guide skill | Accepted |
 | [ADR-010](adr-010-directive-tags.md) | Directive tags for runtime instructions | Accepted |
 | [ADR-011](adr-011-extends-attribute.md) | `extends=` attribute for interface inheritance | Accepted |
+| [ADR-012](adr-012-data-contracts.md) | Data-shape contracts for loop primitives | Accepted |
